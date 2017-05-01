@@ -8,25 +8,26 @@
 
 class File {
 
-    FileContent content_;
+  FileContent content_;
 
 public:
-    File() {}
-    File(const std::string& path) {
-        std::ifstream f(path);
-        if (f.good()) {
-            std::string line;
-            while (std::getline(f, line)) {
-                content_.appendLine(line);
-            }
-        } else {
-            abort();
-        }
-    }
+  File() {}
 
-    FileContent& content() {
-        return content_;
+  File(const std::string &path) {
+    std::ifstream f(path);
+    if (f.good()) {
+      std::string line;
+      while (std::getline(f, line)) {
+        content_.appendLine(line);
+      }
+    } else {
+      abort();
     }
+  }
+
+  FileContent &content() {
+    return content_;
+  }
 };
 
 

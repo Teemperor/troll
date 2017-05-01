@@ -5,23 +5,23 @@
 #include "Line.h"
 
 class FileContent {
-    std::deque<Line> lines_;
+  std::deque<Line> lines_;
 
 public:
-    FileContent() {
-    }
+  FileContent() {
+  }
 
-    void appendLine(const std::string& line) {
-        lines_.push_back(Line(line));
-    }
+  void appendLine(const std::string &line) {
+    lines_.push_back(Line(line));
+  }
 
-    Line& line(size_t index) {
-        return lines_.at(index);
-    }
+  Line &line(int lineNumber) {
+    return lines_.at(lineNumber - 1);
+  }
 
-    size_t linecount() const {
-        return lines_.size();
-    }
+  size_t linecount() const {
+    return lines_.size();
+  }
 };
 
 
