@@ -18,7 +18,7 @@
 #include <InputController.h>
 #include <signal.h>
 #include <string.h>
-
+#include <TabManager.h>
 
 
 char *intprtkey(int ch);
@@ -85,8 +85,8 @@ int main(int argc, char ** argv) {
 
   CommandBar commandBar(0, LINES - 1, COLS);
 
-  FileView view(0, 0, COLS, LINES - 2);
-  view.setFile(&file);
+  TabManager manager(0, 0, COLS, LINES - 2);
+  manager.openFile("test");
 
 
   timeout(300);
@@ -99,10 +99,10 @@ int main(int argc, char ** argv) {
       endwin();
       refresh();
       commandBar.resize(0, LINES - 1, COLS);
-      view.resize(0, 0, COLS, LINES - 2);
+      manager.resize(0, 0, COLS, LINES - 2);
     }
 
-    view.display();
+    manager.display();
     commandBar.display();
     //deleteln();
     if (!handledInput) {
@@ -114,7 +114,7 @@ int main(int argc, char ** argv) {
     refresh();
 
     ch = getch();
-    handledInput = controller.handle(ch, view, commandBar);
+    handledInput = controller.handle(ch, *manager.getView(), commandBar);
   }
 
 
