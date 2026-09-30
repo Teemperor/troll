@@ -113,6 +113,32 @@ def _set_bracketed_paste(on: bool) -> None:
         pass
 
 
+# wheel "buttons" (ncurses 6 values as a fallback for builds that don't export them)
+WHEEL_UP = getattr(curses, "BUTTON4_PRESSED", 0x10000)
+WHEEL_DOWN = getattr(curses, "BUTTON5_PRESSED", 0x200000)
+CLICKS = curses.BUTTON1_PRESSED | curses.BUTTON1_CLICKED | curses.BUTTON1_DOUBLE_CLICKED
+
+
+def _set_mouse(on: bool) -> None:
+    curses.mousemask(CLICKS | WHEEL_UP | WHEEL_DOWN if on else 0)
+    curses.mouseinterval(0)  # report presses right away instead of waiting to detect clicks
+
+
+def _mouse_key() -> str | None:
+    """The pending mouse event as a key name ("Click:Y:X", "WheelUp:Y:X", ...)."""
+    try:
+        _id, x, y, _z, state = curses.getmouse()
+    except curses.error:
+        return None
+    if state & WHEEL_UP:
+        return f"WheelUp:{y}:{x}"
+    if state & WHEEL_DOWN:
+        return f"WheelDown:{y}:{x}"
+    if state & CLICKS:
+        return f"Click:{y}:{x}"
+    return None
+
+
 def _curses_codes() -> dict[int, str]:
     from .keys import CURSES_NAMES
 
@@ -145,17 +171,26 @@ def _main(stdscr, editor) -> None:
         return curses.keyname(code).decode(errors="replace")
 
     decoder = KeyDecoder(getch, keyname, _curses_codes())
+
+    def read(timeout):
+        key = decoder.read(timeout)
+        return _mouse_key() if key == "Mouse" else key
+
+    mouse = False
     try:
         while not editor.quit_requested:
+            if editor.settings.mouse != mouse:
+                mouse = editor.settings.mouse
+                _set_mouse(mouse)
             h, w = stdscr.getmaxyx()
             painter.paint(build_frame(editor, h, w))
-            key = decoder.read(None)
+            key = read(None)
             if key is None:
                 continue
             editor.handle_key(key)
             # handle everything that's already queued (e.g. a paste) before repainting
             while not editor.quit_requested and not editor.suspend_requested:
-                key = decoder.read(0)
+                key = read(0)
                 if key is None:
                     break
                 editor.handle_key(key)

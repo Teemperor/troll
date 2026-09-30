@@ -122,6 +122,8 @@ class SettingsScreen:
             self.editing = LineEdit(key)
         elif key in ("d", "D", "Delete", "Backspace"):
             self.reset()
+        elif key in ("s", "S", "C-s", "C-o"):
+            self.ed.save_settings()
         elif key in ("Esc", "C-x", "C-c", "q", "C-g"):
             self.done = True
 

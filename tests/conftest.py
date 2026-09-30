@@ -8,6 +8,15 @@ from diffedit.editor import Editor
 from diffedit.settings import Settings
 
 
+@pytest.fixture(autouse=True)
+def user_files(monkeypatch, tmp_path):
+    """Keep tests away from the real settings file and position log."""
+    paths = {"config": tmp_path / "user" / "config", "state": tmp_path / "user" / "state"}
+    monkeypatch.setenv("DIFFEDIT_CONFIG", str(paths["config"]))
+    monkeypatch.setenv("XDG_STATE_HOME", str(paths["state"]))
+    return paths
+
+
 @pytest.fixture
 def editor(tmp_path):
     return Editor(Settings(), cwd=str(tmp_path), raise_errors=True)

@@ -32,6 +32,7 @@ STYLES: dict[str, tuple[int, int, int]] = {
     "error": (231, 7, BOLD),
     "control": (203, 1, REVERSE),
     "whitespace": (239, 0, 0),
+    "indent_guide": (238, 0, 0),
     "label": (245, 7, 0),
     # chrome
     "gutter": (240, 7, DIM),
@@ -68,6 +69,10 @@ BACKGROUNDS: dict[str, tuple[int, int]] = {
     "del": (52, -1),
     "selection": (24, 4),
     "match": (136, 3),
+    "match.other": (94, 3),
+    "occurrence": (238, -1),
+    "cursorline": (235, -1),
+    "guide": (236, -1),
     "bracket": (240, 6),
     "trailing": (52, 1),
     "title": (252, 7),

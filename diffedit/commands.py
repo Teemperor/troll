@@ -6,6 +6,7 @@ help screen, so they can never disagree. Commands take `(editor, args)`.
 
 from __future__ import annotations
 
+import os
 import re
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Callable
@@ -679,6 +680,45 @@ command("syntax", "Toggle syntax highlighting", keys=("M-y",), category="Display
         needs_doc=False)(_toggle("highlight", "Syntax highlighting"))
 command("auto-pair", "Toggle automatic bracket/quote pairing", category="Display",
         needs_doc=False)(_toggle("auto_pair", "Auto pairing"))
+command("soft-wrap", "Toggle wrapping long lines on screen", keys=("M-s",), category="Display",
+        needs_doc=False, aliases=("softwrap", "wrap-lines"))(_toggle("soft_wrap", "Soft wrapping"))
+command("hard-wrap", "Toggle breaking long lines while typing", keys=("M-l",), category="Display",
+        needs_doc=False, aliases=("breaklonglines",))(_toggle("hard_wrap", "Hard wrapping"))
+command("constant-show", "Toggle always showing the cursor position", keys=("M-c",), category="Display",
+        needs_doc=False, aliases=("show-position",))(_toggle("show_position", "Constant cursor position display",
+                                                             per_doc=False))
+command("mouse", "Toggle mouse support (click to place the cursor, wheel to scroll)", keys=("M-m",),
+        category="Display", needs_doc=False)(_toggle("mouse", "Mouse support", per_doc=False))
+command("cursor-line", "Toggle highlighting the cursor line", category="Display", needs_doc=False,
+        aliases=("cursorline",))(_toggle("cursor_line", "Cursor line highlighting"))
+command("relative-numbers", "Toggle line numbers relative to the cursor", category="Display", needs_doc=False,
+        aliases=("relativenumber", "rnu"))(_toggle("relative_numbers", "Relative line numbers"))
+
+
+@command("nohl", "Stop highlighting the matches of the last search (until the next search)", category="Search",
+         aliases=("nohlsearch", "noh", "clear-highlight"), needs_doc=False)
+def _nohl(ed, args):
+    ed.search_highlight_off = True
+    ed.highlight_match = None
+
+
+@command("save-settings", "Save the current settings as your defaults (in the settings file)", needs_doc=False,
+         overview=True, category="Display", aliases=("write-settings", "save-config"))
+def _save_settings(ed, args):
+    ed.save_settings()
+
+
+@command("edit-settings", "Open the settings file", needs_doc=False, category="Display",
+         aliases=("rc", "open-settings", "edit-config"))
+def _edit_settings(ed, args):
+    from .config import config_path
+
+    if ed.commit is not None:
+        ed.error("Leave the commit editor first")
+        return
+    path = config_path()
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    ed.open_file(path)
 
 
 @command("settings", "Browse and change all options in a settings panel", needs_doc=False, overview=True,
@@ -784,6 +824,12 @@ def _side_by_side(ed, args):
 @command("revert", "Undo your edits at the cursor (restore the commit's version)", category="Commit",
          aliases=("restore",), commit_only=True)
 def _revert(ed, args):
+    ed.revert_edit()
+
+
+@command("revert-hunk", "Drop the commit's change at the cursor (restore the text from before the commit)",
+         category="Commit", aliases=("revert-change", "drop-hunk", "drop-change"), commit_only=True)
+def _revert_hunk(ed, args):
     ed.revert_hunk()
 
 
@@ -824,6 +870,11 @@ SMART FORMATTING
   (Enter on an empty comment line ends it). Brackets and quotes are paired (but not
   inside comments). ^J reflows the paragraph or comment block under the cursor,
   keeping the comment markers; select lines first to reflow just those.
+
+SETTINGS
+  `settings` opens a panel with every option (S there saves them as your defaults).
+  Defaults are read from ~/.config/diffedit/config at startup; `edit-settings` opens it.
+  One option per line, nanorc style: `set softwrap`, `unset linenumbers`, `set tabsize 2`.
 """
 
 

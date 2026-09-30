@@ -4,7 +4,7 @@ diffedit: nano-style curses editor in pure Python (stdlib only, Python ≥3.10) 
 
 ## Commands
 
-- Test: `python3 -m pytest -q` (~250 tests, ~12s; the git tests create real temp repos).
+- Test: `python3 -m pytest -q` (~270 tests, ~10s; the git tests create real temp repos).
 - Run: `python3 -m diffedit FILE`, `python3 -m diffedit --commit HEAD~1`.
 - The TUI needs a real terminal. To check it end to end, drive it through a pty (`pty.fork`) and **always kill the child after a deadline**, because a modal prompt waiting for input will otherwise hang forever.
 
@@ -27,6 +27,7 @@ Nothing outside `diffedit/tui/` may import curses. The flow is:
 | `commands.py` | **single source of truth** for actions: `@command(name, help, keys=..., aliases=..., prompt=...)`. The keymap, the palette and the help screen are all generated from it. Key names look like `"C-k"`, `"M-u"`, `"S-Up"`, `"M-Down"`, `"Enter"`, `"F7"` |
 | `editor.py` | dispatch order: prompt → overlay → commit overview → keymap → typed char. Modal flows (save/exit/search/replace/commit apply). `option_targets(key)` decides which `Settings` objects a change applies to. `raise_errors=True` for tests (otherwise errors become status messages) |
 | `prompt.py` | pure state machines: `Prompt`, `Choice`, `Picker` (fuzzy palette), `HelpScreen`; each sets `.done` |
+| `config.py` | the user's settings file (`load_config`/`save_config`, nanorc-style `set`/`unset` lines; `$DIFFEDIT_CONFIG` overrides the path) and the cursor position log for `remember_position` (`$XDG_STATE_HOME`). The CLI applies it before command line flags |
 | `settings.py` / `settings_screen.py` | `Settings` dataclass + `OPTIONS` metadata (label, section, range, `editor_wide`, `all_files`); the settings panel overlay |
 | `view.py` | all layout: gutters, scrolling (`adjust_scroll`), unified and side-by-side diff rows, overlays, title/status/help bars |
 | `tui/theme.py` | style name → 256/8-color fg/bg |
@@ -40,4 +41,8 @@ Nothing outside `diffedit/tui/` may import curses. The flow is:
 - Adding a command or key: one `@command` in `commands.py`; check that the key isn't already bound (`build_keymap`). Commands with `prompt=` ask for their argument when run without one.
 - The layout cache key in `Document.layout()` must include every input to `build_rows` (fold, context, cursor row, side_by_side).
 - Tests: use `conftest.editor_with(editor, text, path=..., cursor=..., **settings)` and `make_doc`; drive with `ed.keys(...)`/`ed.type(...)`; check `build_frame(ed, h, w).text()`/`.cursor`. Git tests use the `repo` fixture (isolated `GIT_CONFIG_GLOBAL`, fixed identities). Run command lines "like a user" through the palette (`C-t`, type, `Enter`) so they hit the same error handling as real input.
+- Per-frame highlight inputs (matching brackets, word under cursor, all search matches) go in `view.Marks`; `emit_cells` draws a line's cells, plus the guide stripe and indent guides.
+- Soft wrap: `textutil.wrap_starts` splits a line into screen rows. `doc.scroll_row` still counts display rows (whole lines), so anything that converts between screen rows and lines must go through `_item_height`/`last_visible_index`.
+- Mouse events reach the editor as keys `Click:Y:X` / `WheelUp:Y:X` / `WheelDown:Y:X` (screen cells). `build_frame` fills `ed.click_map` (screen body row → buffer row, left display col, text x) so clicks resolve without the editor knowing the layout.
+- Tests never touch the real home directory: the autouse `user_files` fixture points the settings file and state dir into `tmp_path`.
 - Language detection can override `tab_size`/`expand_tabs` (detect_indent); tests that depend on these should set them explicitly.

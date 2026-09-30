@@ -172,3 +172,49 @@ def find_enclosing_opener(lines: list[str], pos: Pos) -> Pos | None:
         row -= 1
         col = None
     return None
+
+
+def word_at(line: str, col: int) -> str:
+    """The word touching position `col` (just after a word counts), or ""."""
+    s = col
+    while s > 0 and is_word_char(line[s - 1]):
+        s -= 1
+    e = col
+    while e < len(line) and is_word_char(line[e]):
+        e += 1
+    return line[s:e]
+
+
+def wrap_starts(line: str, width: int, tab_size: int) -> list[int]:
+    """Indices where the screen rows of a soft-wrapped line start.
+
+    Rows break after the last blank that fits (like nano's `atblanks`), or
+    mid-word when a word is longer than a whole row.
+    """
+    starts = [0]
+    if width < 1:
+        return starts
+    cols = [0] * (len(line) + 1)
+    for i, ch in enumerate(line):
+        cols[i + 1] = advance(ch, cols[i], tab_size)
+    seg = 0
+    blank = None  # index after the last blank in the current row
+    i = 0
+    while i < len(line):
+        if cols[i + 1] - cols[seg] > width and i > seg:
+            seg = blank if blank is not None and seg < blank <= i else i
+            starts.append(seg)
+            blank = None
+            continue  # re-check character i against the new row
+        if line[i] in " \t":
+            blank = i + 1
+        i += 1
+    return starts
+
+
+def row_of(starts: list[int], col: int) -> int:
+    """Which soft-wrapped row (index into `starts`) contains `col`."""
+    k = 0
+    while k + 1 < len(starts) and starts[k + 1] <= col:
+        k += 1
+    return k

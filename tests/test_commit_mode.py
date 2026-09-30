@@ -151,6 +151,59 @@ def test_revert_hunk_restores_commit_version(repo):
     assert not doc.changed_from_original
 
 
+def run_palette(ed, line):
+    ed.keys("C-t")
+    ed.type(line)
+    ed.keys("Enter")
+
+
+def test_revert_hunk_drops_the_commits_change(repo):
+    target = make_history(repo)
+    ed = open_editor(repo, target)
+    ed.open_entry(2)
+    doc = ed.doc
+    # an added line: it goes away
+    doc.goto(doc.lines.index("# Thsi helper is teh best"), 0)
+    run_palette(ed, "revert-hunk")
+    assert "# Thsi helper is teh best" not in doc.lines
+    assert "Reverted" in ed.message.text
+    # a deletion (the ghost precedes "line 6"): the line comes back
+    doc.goto(doc.lines.index("line 6"), 0)
+    run_palette(ed, "revert-hunk")
+    assert doc.lines[5] == "line 5"
+    assert doc.lines == doc.diff.base
+    # nothing left to revert
+    doc.goto(10, 0)
+    run_palette(ed, "revert-hunk")
+    assert "doesn't change anything" in ed.message.text
+    ed.keys("M-u")  # undo brings the deletion back
+    assert "line 5" not in doc.lines
+
+
+def test_revert_hunk_then_apply_rewrites_commit_without_it(repo):
+    target = make_history(repo)
+    ed = open_editor(repo, target)
+    ed.open_entry(2)
+    doc = ed.doc
+    doc.goto(doc.lines.index("# Thsi helper is teh best"), 0)
+    run_palette(ed, "revert-hunk")
+    ed.keys("C-s", "y")
+    assert "Rewrote" in ed.message.text
+    old = repo.show("HEAD~1", "src/app.py")
+    assert "# Thsi helper" not in old and "line 5\n" not in old  # the other change stays
+    assert "line thirty" in repo.show("HEAD", "src/app.py")
+
+
+def test_revert_hunk_at_end_of_file(repo):
+    repo.commit("base", {"a.txt": "a\nb\nc\n"})
+    sha = repo.commit("drop tail", {"a.txt": "a\n"})
+    ed = open_editor(repo, sha)
+    doc = ed.doc
+    doc.goto(len(doc.lines) - 1, 0)
+    run_palette(ed, "revert-hunk")
+    assert "\n".join(doc.lines) == "a\nb\nc\n"
+
+
 def test_switching_files_with_alt_arrows(repo):
     target = make_history(repo)
     ed = open_editor(repo, target)

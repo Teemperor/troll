@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import bisect
 import os
+import shutil
 from contextlib import contextmanager
 
 from . import autoformat as af
@@ -19,6 +20,7 @@ from .highlight import Highlighter
 from .settings import Settings
 from .textutil import (
     display_col,
+    display_width,
     find_matching_bracket,
     index_at_display_col,
     is_word_char,
@@ -381,7 +383,41 @@ class Document:
                     delta = len(new) - len(old)
                     self.buffer.replace_lines(r, r, [new])
                     self.cursor = (r, max(0, self.cursor[1] + delta))
+            if self.settings.hard_wrap and not ch.isspace():
+                self._hard_wrap(r)
         self.goal_col = None
+
+    def _hard_wrap(self, r: int) -> None:
+        """Break row `r` at the last blank that fits in fill_width (nano's breaklonglines)."""
+        line = self.lines[r]
+        width, tab = self.settings.fill_width, self.settings.tab_size
+        if display_width(line, tab) <= width:
+            return
+        prefix = af.line_prefix(line, self.lang)
+        lo = len(prefix.first)
+        b = None
+        for i in range(len(line) - 1, lo - 1, -1):
+            if line[i] in " \t" and display_col(line, i, tab) <= width:
+                b = i
+                break
+        if b is None or not line[lo:b].strip():
+            return  # a single word longer than the line: leave it
+        head = line[:b].rstrip(" \t")
+        t = b
+        while t < len(line) and line[t] in " \t":
+            t += 1
+        if prefix.kind in ("comment", "quote"):
+            rest = prefix.rest
+        elif prefix.kind == "list":
+            rest = leading_ws(prefix.first) + " " * len(prefix.first.lstrip(" \t"))
+        else:
+            rest = prefix.first
+        c = self.cursor[1]
+        self.buffer.replace_lines(r, r, [head, rest + line[t:]])
+        if c >= t:
+            self.cursor = (r + 1, len(rest) + c - t)
+        else:
+            self.cursor = (r, min(c, len(head)))
 
     def _comment_info(self, row: int) -> tuple[int | None, bool | None]:
         """(column where a comment starts, whether the line is a comment line)."""
@@ -752,6 +788,8 @@ class Document:
             raise ValueError("No file name")
         self.prepare_for_save()
         data = self.to_bytes()
+        if self.settings.backup and os.path.isfile(path):
+            shutil.copy2(path, path + "~")
         with open(path, "wb") as f:
             f.write(data)
         if self.path != path:

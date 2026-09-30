@@ -7,6 +7,7 @@ overlays, scrolling) are testable as plain data.
 
 from __future__ import annotations
 
+import re
 import time
 from dataclasses import dataclass
 
@@ -14,7 +15,17 @@ from . import __version__
 from .commit_session import STATUS_NAMES
 from .prompt import Choice, HelpScreen, Picker, Prompt
 from .settings_screen import SettingsScreen
-from .textutil import char_display, char_width, display_col, find_matching_bracket, index_at_display_col
+from .textutil import (
+    char_display,
+    char_width,
+    display_col,
+    find_matching_bracket,
+    index_at_display_col,
+    leading_ws,
+    row_of,
+    word_at,
+    wrap_starts,
+)
 
 Seg = tuple[str, str, "str | None"]  # (text, fg style, bg style)
 
@@ -90,33 +101,90 @@ def body_height(ed, height: int) -> int:
     return max(1, height - 2 - help_rows)
 
 
+def number_width(doc) -> int:
+    if doc.settings.line_numbers or doc.settings.relative_numbers:
+        return max(3, len(str(len(doc.lines))))
+    return 0
+
+
+def number_label(doc, row: int, num_w: int) -> str:
+    cur = doc.cursor[0]
+    if doc.settings.relative_numbers and row != cur:
+        n = abs(row - cur)
+    elif doc.settings.relative_numbers and not doc.settings.line_numbers:
+        n = 0
+    else:
+        n = row + 1
+    return f"{n:>{num_w}}"
+
+
 def gutter_width(doc) -> int:
     """Width of what doc_rows draws before the text: line number, diff markers
     (edited + added), then a single separating space."""
-    w = 0
-    if doc.settings.line_numbers:
-        w += max(3, len(str(len(doc.lines))))
+    w = number_width(doc)
     if doc.diff is not None:
         w += 2
     return w + 1 if w else 0
 
 
-def adjust_scroll(doc, height: int, text_width: int) -> None:
+def _item_height(doc, idx: int, text_width: int) -> int:
+    """Screen rows used by display row `idx` when soft wrapping."""
+    layout = doc.layout()
+    if layout is None:
+        row = idx
+    elif idx < len(layout) and layout[idx].kind == "line":
+        row = layout[idx].row
+    else:
+        return 1
+    if row >= len(doc.lines):
+        return 1
+    return len(wrap_starts(doc.lines[row], text_width, doc.settings.tab_size))
+
+
+def last_visible_index(doc, height: int, width: int) -> int:
+    """Last display row that fits on screen from doc.scroll_row (soft wrap aware)."""
+    top = doc.scroll_row
+    if not doc.settings.soft_wrap or (doc.diff is not None and doc.settings.side_by_side):
+        return top + max(1, height) - 1
+    text_w = max(1, width - gutter_width(doc))
+    used, idx = 0, top
+    while idx < doc.display_count():
+        used += _item_height(doc, idx, text_w)
+        if used > height:
+            break
+        idx += 1
+    return max(top, idx - 1)
+
+
+def adjust_scroll(doc, height: int, text_width: int, wrap: bool = False) -> None:
     idx = doc.display_index(doc.cursor[0])
     count = doc.display_count()
+    margin = min(doc.settings.scroll_margin, (height - 1) // 2)
     if doc.center_pending:
         doc.scroll_row = idx - height // 2
         doc.center_pending = False
-    elif idx < doc.scroll_row:
-        doc.scroll_row = idx
+    elif idx < doc.scroll_row + margin:
+        doc.scroll_row = idx - margin
         # show ghost (removed) lines right above the cursor line too
         rows = doc.layout()
         while rows and doc.scroll_row > 0 and rows[doc.scroll_row - 1].kind == "ghost" and idx - doc.scroll_row < height - 1:
             doc.scroll_row -= 1
-    elif idx >= doc.scroll_row + height:
-        doc.scroll_row = idx - height + 1
+    elif idx >= doc.scroll_row + height - margin:
+        # the margin doesn't push the last line of the file up from the bottom
+        doc.scroll_row = max(idx - height + 1, min(idx - height + 1 + margin, count - height))
     doc.scroll_row = max(0, min(doc.scroll_row, max(0, count - 1)))
     r, c = doc.cursor
+    if wrap:
+        # wrapped lines take several rows: scroll further until the cursor's row fits
+        tab = doc.settings.tab_size
+        below = margin if idx + margin < count else 0
+        need = sum(_item_height(doc, i, text_width) for i in range(doc.scroll_row, idx))
+        need += row_of(wrap_starts(doc.lines[r], text_width, tab), c) + 1 + below
+        while need > height and doc.scroll_row < idx:
+            need -= _item_height(doc, doc.scroll_row, text_width)
+            doc.scroll_row += 1
+        doc.scroll_col = 0
+        return
     col = display_col(doc.lines[r], c, doc.settings.tab_size)
     margin = min(8, max(0, text_width // 4))
     if col < doc.scroll_col:
@@ -130,7 +198,27 @@ def adjust_scroll(doc, height: int, text_width: int) -> None:
 # ------------------------------------------------------------- text rows
 
 
-def _line_styles(ed, doc, row: int, upto: int, bracket_cells: set) -> tuple[list[str], list[str | None]]:
+@dataclass
+class Marks:
+    """Per-frame highlight inputs shared by every rendered line."""
+
+    brackets: set
+    word: re.Pattern | None = None  # other occurrences of the word under the cursor
+    search: re.Pattern | None = None  # every match of the last search
+
+
+def _marks(ed, doc) -> Marks:
+    marks = Marks(_bracket_cells(doc))
+    r, c = doc.cursor
+    if doc.settings.highlight_word and doc.selection() is None:
+        word = word_at(doc.lines[r], c)
+        if word:
+            marks.word = re.compile(r"(?<!\w)" + re.escape(word) + r"(?!\w)")
+    marks.search = ed.search_highlight_pattern()
+    return marks
+
+
+def _line_styles(ed, doc, row: int, upto: int, marks: Marks) -> tuple[list[str], list[str | None]]:
     line = doc.lines[row]
     n = min(len(line), upto)
     fg = ["text"] * n
@@ -154,8 +242,17 @@ def _line_styles(ed, doc, row: int, upto: int, bracket_cells: set) -> tuple[list
         if mr == row:
             for i in range(ms, min(me, n)):
                 bg[i] = "match"
-    for br, bc in bracket_cells:
-        if br == row and bc < n and bg[bc] is None:
+    for pattern, style in ((marks.search, "match.other"), (marks.word, "occurrence")):
+        if pattern is None:
+            continue
+        for m in pattern.finditer(line, 0, len(line)):
+            if m.start() >= n:
+                break
+            for i in range(m.start(), min(m.end(), n)):
+                if bg[i] is None:
+                    bg[i] = style
+    for br, bc in marks.brackets:
+        if br == row and bc < n and bg[bc] in (None, "occurrence", "match.other"):
             bg[bc] = "bracket"
     if doc.settings.show_whitespace:
         stripped = len(line.rstrip())
@@ -166,40 +263,62 @@ def _line_styles(ed, doc, row: int, upto: int, bracket_cells: set) -> tuple[list
     return fg, bg
 
 
-def render_text(ed, doc, row: int, rb: RowBuilder, width: int, base_bg: str | None, bracket_cells: set) -> None:
+def _guide(doc) -> int | None:
+    """Display column of the guide stripe (0-based), or None."""
+    return doc.settings.guide_column - 1 if doc.settings.guide_column > 0 else None
+
+
+def render_text(ed, doc, row: int, rb: RowBuilder, width: int, base_bg: str | None, marks: Marks) -> None:
     line = doc.lines[row]
     tab = doc.settings.tab_size
     upto = index_at_display_col(line, doc.scroll_col + width, tab) + 1
-    fg, bg = _line_styles(ed, doc, row, upto, bracket_cells)
-    emit_cells(line, fg, bg, rb, width, doc.scroll_col, tab, doc.settings.show_whitespace, base_bg)
+    fg, bg = _line_styles(ed, doc, row, upto, marks)
+    emit_cells(line, fg, bg, rb, width, doc.scroll_col, tab, doc.settings.show_whitespace, base_bg,
+               guide=_guide(doc), indent_guides=doc.settings.indent_guides)
 
 
 def emit_cells(line: str, fg: list[str], bg: list[str | None], rb: RowBuilder, width: int, left: int,
-               tab: int, show_ws: bool, base_bg: str | None) -> None:
-    """Draw `line` (styled per character) from display column `left`, `width` cells wide."""
+               tab: int, show_ws: bool, base_bg: str | None, guide: int | None = None,
+               indent_guides: bool = False) -> None:
+    """Draw `line` (styled per character) from display column `left`, `width` cells wide.
+
+    Only the first len(fg) characters are drawn. `guide` is the display column
+    of the guide stripe; `indent_guides` marks each indent stop in the leading
+    whitespace.
+    """
     col = 0
+    lead = len(leading_ws(line)) if indent_guides else 0
     for i in range(min(len(line), len(fg))):
         ch = line[i]
         disp = char_display(ch, col, tab)
         style = fg[i]
+        cell_bg = bg[i] or base_bg
         if ch == "\t" and show_ws:
             disp = "›" + disp[1:]
             style = "whitespace"
         elif ch == " " and show_ws and fg[i] == "whitespace":
             disp = "·"
+        elif i < lead and col % tab == 0:
+            disp = "│" + disp[1:]
+            style = "indent_guide"
         elif ord(ch) < 32 or ord(ch) == 127:
             style = "control"
         cw = len(disp) if ch == "\t" or ord(ch) < 32 or ord(ch) == 127 else char_width(ch)
         start, col = col, col + cw
+        if guide is not None and start <= guide < col and bg[i] is None:
+            cell_bg = "guide"
         if col <= left:
             continue
         if start < left:
             disp = " " * (col - left)
         if col > left + width:
             disp = " " * max(0, left + width - start)
-            rb.add(disp, style, bg[i] or base_bg)
+            rb.add(disp, style, cell_bg)
             break
-        rb.add(disp, style, bg[i] or base_bg)
+        rb.add(disp, style, cell_bg)
+    if guide is not None and col <= guide < left + width:
+        rb.add(" " * (guide - max(col, left)), "text", base_bg)
+        rb.add(" ", "text", "guide")
 
 
 def _bracket_cells(doc) -> set:
@@ -212,77 +331,118 @@ def _bracket_cells(doc) -> set:
     return set()
 
 
+def _line_bg(doc, diff, row: int) -> str | None:
+    """Background of a whole text line: added by the commit, or the cursor line."""
+    if diff is not None and row in diff.added:
+        return "add"
+    if doc.settings.cursor_line and row == doc.cursor[0] and doc.selection() is None:
+        return "cursorline"
+    return None
+
+
+def _line_gutter(doc, diff, rb: RowBuilder, row: int, num_w: int, gw: int, first: bool = True) -> None:
+    """Line number and diff markers (blank on soft-wrapped continuation rows)."""
+    if not first:
+        rb.add(" " * gw, "gutter", None)
+        return
+    if num_w:
+        rb.add(number_label(doc, row, num_w), "gutter.current" if row == doc.cursor[0] else "gutter", None)
+    if diff is not None:
+        edited = row in diff.edited or row in diff.edit_deletions
+        rb.add("*" if edited else " ", "gutter.edit", None)
+        rb.add("+" if row in diff.added else " ", "gutter.add", None)
+    if gw:
+        rb.add(" ", "gutter", None)
+
+
 def doc_rows(ed, doc, height: int, width: int) -> tuple[list[list[Seg]], tuple[int, int] | None]:
     if doc.diff is not None and doc.settings.side_by_side:
         return side_by_side_rows(ed, doc, height, width)
     gw = gutter_width(doc)
     text_w = max(1, width - gw)
-    adjust_scroll(doc, height, text_w)
+    wrap = doc.settings.soft_wrap
+    adjust_scroll(doc, height, text_w, wrap)
     layout = doc.layout()
     diff = doc.diff.get(doc.buffer) if doc.diff is not None else None
-    num_w = max(3, len(str(len(doc.lines)))) if doc.settings.line_numbers else 0
-    brackets = _bracket_cells(doc)
+    num_w = number_width(doc)
+    marks = _marks(ed, doc)
+    tab = doc.settings.tab_size
+    guide = _guide(doc)
     out: list[list[Seg]] = []
     cursor = None
-    for i in range(height):
-        idx = doc.scroll_row + i
+    idx = doc.scroll_row
+    while len(out) < height:
         rb = RowBuilder(width)
         if layout is None:
             if idx >= len(doc.lines):
                 out.append(rb.row())
+                idx += 1
                 continue
             kind, row, text, count = "line", idx, "", 0
         else:
             if idx >= len(layout):
                 out.append(rb.row())
+                idx += 1
                 continue
             item = layout[idx]
             kind, row, text, count = item.kind, item.row, item.text, item.count
+        idx += 1
         if kind == "line":
-            base_bg = "add" if diff is not None and row in diff.added else None
-            if num_w:
-                cur = row == doc.cursor[0]
-                rb.add(f"{row + 1:>{num_w}}", "gutter.current" if cur else "gutter", None)
-            if diff is not None:
-                edited = row in diff.edited or row in diff.edit_deletions
-                rb.add("*" if edited else " ", "gutter.edit", None)
-                rb.add("+" if row in diff.added else " ", "gutter.add", None)
-            if gw:
-                rb.add(" ", "gutter", None)
-            render_text(ed, doc, row, rb, text_w, base_bg, brackets)
-            if base_bg:
-                rb.pad("text", base_bg)
-            if row == doc.cursor[0]:
-                r, c = doc.cursor
-                x = gw + display_col(doc.lines[r], c, doc.settings.tab_size) - doc.scroll_col
-                cursor = (i, max(gw, min(width - 1, x)))
+            line = doc.lines[row]
+            base_bg = _line_bg(doc, diff, row)
+            if not wrap:
+                _line_gutter(doc, diff, rb, row, num_w, gw)
+                render_text(ed, doc, row, rb, text_w, base_bg, marks)
+                if base_bg:
+                    rb.pad("text", base_bg)
+                if row == doc.cursor[0]:
+                    x = gw + display_col(line, doc.cursor[1], tab) - doc.scroll_col
+                    cursor = (len(out), max(gw, min(width - 1, x)))
+                ed.click_map[len(out)] = (row, doc.scroll_col, gw)
+                out.append(rb.row())
+                continue
+            fg, bg = _line_styles(ed, doc, row, len(line), marks)
+            starts = wrap_starts(line, text_w, tab)
+            cursor_part = row_of(starts, doc.cursor[1]) if row == doc.cursor[0] else None
+            for k, s in enumerate(starts):
+                if len(out) >= height:
+                    break
+                e = starts[k + 1] if k + 1 < len(starts) else len(line)
+                left = display_col(line, s, tab)
+                rb = RowBuilder(width)
+                _line_gutter(doc, diff, rb, row, num_w, gw, first=k == 0)
+                emit_cells(line, fg[:e], bg[:e], rb, text_w, left, tab, doc.settings.show_whitespace, base_bg,
+                           guide=None if guide is None else left + guide, indent_guides=doc.settings.indent_guides)
+                if base_bg:
+                    rb.pad("text", base_bg)
+                if k == cursor_part:
+                    x = gw + display_col(line, doc.cursor[1], tab) - left
+                    cursor = (len(out), max(gw, min(width - 1, x)))
+                ed.click_map[len(out)] = (row, left, gw)
+                out.append(rb.row())
         elif kind == "ghost":
             if num_w:
                 rb.add(" " * num_w, "gutter", None)
             rb.add(" -", "gutter.del", None)
             rb.add(" ", "gutter", None)
-            expanded = "".join(char_display(ch, 0, 1) if ch != "\t" else " " * doc.settings.tab_size for ch in text)
+            expanded = "".join(char_display(ch, 0, 1) if ch != "\t" else " " * tab for ch in text)
             rb.add(expanded[doc.scroll_col:], "ghost", "del")
             rb.pad("ghost", "del")
+            out.append(rb.row())
         else:  # fold
             label = f" ⋯ {count} unchanged line{'s' if count != 1 else ''} (M-Z shows all) ⋯"
             rb.add(" " * gw, "fold", None)
             rb.add(label, "fold", None)
-        out.append(rb.row())
+            out.append(rb.row())
     return out, cursor
 
 
-def _left_line(ed, doc, diff, row: int, width: int, num_w: int, gw: int, brackets: set) -> RowBuilder:
+def _left_line(ed, doc, diff, row: int, width: int, num_w: int, gw: int, marks: Marks) -> RowBuilder:
     """Gutter + text of a current line (shared by the unified and side-by-side views)."""
     rb = RowBuilder(width)
-    base_bg = "add" if row in diff.added else None
-    if num_w:
-        rb.add(f"{row + 1:>{num_w}}", "gutter.current" if row == doc.cursor[0] else "gutter", None)
-    edited = row in diff.edited or row in diff.edit_deletions
-    rb.add("*" if edited else " ", "gutter.edit", None)
-    rb.add("+" if row in diff.added else " ", "gutter.add", None)
-    rb.add(" ", "gutter", None)
-    render_text(ed, doc, row, rb, max(1, width - gw), base_bg, brackets)
+    base_bg = _line_bg(doc, diff, row)
+    _line_gutter(doc, diff, rb, row, num_w, gw)
+    render_text(ed, doc, row, rb, max(1, width - gw), base_bg, marks)
     rb.pad("text", base_bg)
     return rb
 
@@ -319,15 +479,15 @@ def side_by_side_rows(ed, doc, height: int, width: int) -> tuple[list[list[Seg]]
     """Commit diff with your editable version on the left and the parent version on the right."""
     left_w = max(8, (width - 1) // 2)
     right_w = max(0, width - left_w - 1)
-    numbers = doc.settings.line_numbers
-    num_w = max(3, len(str(len(doc.lines)))) if numbers else 0
+    numbers = doc.settings.line_numbers or doc.settings.relative_numbers
+    num_w = number_width(doc)
     gw = gutter_width(doc)
     diff = doc.diff.get(doc.buffer)
     base_num_w = max(3, len(str(len(diff.base)))) if numbers else 0
     body_h = max(1, height - 1)
     adjust_scroll(doc, body_h, max(1, left_w - gw))
     layout = doc.layout()
-    brackets = _bracket_cells(doc)
+    marks = _marks(ed, doc)
 
     header = RowBuilder(width)
     header.add(fit(" your version (editable)", left_w), "label", None)
@@ -346,7 +506,8 @@ def side_by_side_rows(ed, doc, height: int, width: int) -> tuple[list[list[Seg]]
             out.append(rb.row())
             continue
         if item is not None and item.kind == "line":
-            left = _left_line(ed, doc, diff, item.row, left_w, num_w, gw, brackets)
+            left = _left_line(ed, doc, diff, item.row, left_w, num_w, gw, marks)
+            ed.click_map[i + 1] = (item.row, doc.scroll_col, gw)
             if item.row == doc.cursor[0]:
                 r, c = doc.cursor
                 x = gw + display_col(doc.lines[r], c, doc.settings.tab_size) - doc.scroll_col
@@ -651,6 +812,13 @@ def status_row(ed, width: int) -> tuple[list[Seg], int | None]:
         pad = max(0, (width - _w(text)) // 2)
         rb.add(" " * pad, "text", None)
         rb.add(text, "status.error" if ed.message.kind == "error" else "status.info", None)
+    doc = ed.doc
+    if ed.settings.show_position and doc is not None and ed.overlay is None and not ed.in_overview:
+        r, c = doc.cursor
+        pos = f" line {r + 1}/{len(doc.lines)}, col {c + 1} "
+        if rb.used + _w(pos) <= width:
+            rb.add(" " * (width - rb.used - _w(pos)), "text", None)
+            rb.add(pos, "label", None)
     return rb.row(), None
 
 
@@ -677,7 +845,8 @@ HELP_SEARCH = [
 HELP_PROMPT = [("Enter", "Accept"), ("Tab", "Complete"), ("↑↓", "History"), ("^C", "Cancel")]
 HELP_PICKER = [("↑↓", "Select"), ("Enter", "Run"), ("Tab", "Complete"), ("Esc", "Cancel"), ("type", "to filter")]
 HELP_HELP = [("^X", "Close"), ("^Y", "Prev Page"), ("^V", "Next Page"), ("↑↓", "Scroll")]
-HELP_SETTINGS = [("↑↓", "Select"), ("Enter", "Change"), ("←→", "Adjust"), ("D", "Default"), ("Esc", "Close")]
+HELP_SETTINGS = [("↑↓", "Select"), ("Enter", "Change"), ("←→", "Adjust"), ("D", "Default"), ("S", "Save"),
+                 ("Esc", "Close")]
 HELP_SETTINGS_EDIT = [("0-9", "Type a number"), ("Enter", "Accept"), ("Esc", "Cancel")]
 
 
@@ -730,6 +899,7 @@ def build_frame(ed, height: int, width: int) -> Frame:
     body_h = body_height(ed, height)
     ed.body_height = body_h
     ed.body_width = width
+    ed.click_map = {}
     rows: list[list[Seg]] = [title_row(ed, width)]
     cursor = None
     settings_cursor = None

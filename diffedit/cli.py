@@ -7,7 +7,7 @@ import os
 import re
 import sys
 
-from . import __version__
+from . import __version__, config
 from .editor import Editor
 from .gitcommit import GitError
 from .settings import Settings
@@ -41,6 +41,12 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("-r", "--fill", type=int, metavar="N", help="justify width (default 80)")
     p.add_argument("-Y", "--syntax", metavar="LANG", help="force a syntax/language")
     p.add_argument("-x", "--nohelp", action="store_true", help="hide the two help lines")
+    p.add_argument("-S", "--softwrap", action="store_true", help="wrap long lines on screen")
+    p.add_argument("-b", "--breaklonglines", action="store_true", help="hard-wrap lines while typing")
+    p.add_argument("-J", "--guidestripe", type=int, metavar="N", help="draw a guide stripe at column N")
+    p.add_argument("-m", "--mouse", action="store_true", help="enable mouse support")
+    p.add_argument("-B", "--backup", action="store_true", help="keep the previous version as FILE~ when saving")
+    p.add_argument("-I", "--ignorercfiles", action="store_true", help="don't read the settings file")
     p.add_argument("-V", "--version", action="version", version=f"diffedit {__version__}")
     return p
 
@@ -64,8 +70,13 @@ def split_positions(items: list[str]) -> list[tuple[str, int | None, int | None]
     return out
 
 
-def make_settings(args) -> Settings:
+def make_settings(args, errors: list[str] | None = None) -> Settings:
+    """Defaults, then the settings file, then command line options."""
     s = Settings()
+    if not getattr(args, "ignorercfiles", False):
+        problems = config.load_config(s)
+        if errors is not None:
+            errors.extend(problems)
     if args.tabsize:
         s.tab_size = args.tabsize
     if args.tabstospaces:
@@ -82,13 +93,24 @@ def make_settings(args) -> Settings:
         s.fill_width = args.fill
     if args.nohelp:
         s.help_lines = False
+    if args.softwrap:
+        s.soft_wrap = True
+    if args.breaklonglines:
+        s.hard_wrap = True
+    if args.guidestripe is not None:
+        s.guide_column = max(0, args.guidestripe)
+    if args.mouse:
+        s.mouse = True
+    if args.backup:
+        s.backup = True
     return s
 
 
 def setup_editor(args) -> Editor:
     from . import languages
 
-    ed = Editor(make_settings(args), cwd=args.directory)
+    problems: list[str] = []
+    ed = Editor(make_settings(args, problems), cwd=args.directory)
     if args.commit is not None:
         if args.commit:
             ed.open_commit(args.commit)
@@ -113,6 +135,8 @@ def setup_editor(args) -> Editor:
         ed.new_doc()
     if len(ed.docs) > 1:
         ed.index = 0
+    if problems:
+        ed.error(problems[0] + (f" (and {len(problems) - 1} more)" if len(problems) > 1 else ""))
     return ed
 
 
@@ -128,7 +152,10 @@ def main(argv: list[str] | None = None) -> int:
         return 1
     from .tui.app import run
 
-    run(ed)
+    try:
+        run(ed)
+    finally:
+        ed.shutdown()
     return 0
 
 

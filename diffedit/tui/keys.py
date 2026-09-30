@@ -23,6 +23,7 @@ CURSES_NAMES = {
     "KEY_BTAB": "S-Tab", "KEY_RESIZE": "Resize", "KEY_SLEFT": "S-Left", "KEY_SRIGHT": "S-Right",
     "KEY_SR": "S-Up", "KEY_SF": "S-Down", "KEY_SHOME": "S-Home", "KEY_SEND": "S-End",
     "KEY_SPREVIOUS": "S-PageUp", "KEY_SNEXT": "S-PageDown", "KEY_SDC": "S-Delete",
+    "KEY_MOUSE": "Mouse",
     "KEY_A1": "Home", "KEY_C1": "End", "KEY_A3": "PageUp", "KEY_C3": "PageDown", "KEY_B2": "Center",
 }
 

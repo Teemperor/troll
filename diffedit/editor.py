@@ -13,12 +13,14 @@ import subprocess
 from dataclasses import dataclass
 
 from . import commands as cmds
-from . import gitcommit, languages
+from . import config, gitcommit, languages
 from .commit_session import CommitSession
 from .diffmodel import diff_opcodes
 from .document import Document, ReadOnlyError, decode
 from .prompt import Choice, HelpScreen, Picker, PickerItem, Prompt, PromptOption, is_printable
 from .search import compile_query, find, replacement_text
+from .textutil import index_at_display_col
+from .view import last_visible_index
 from .settings import Settings
 from .settings_screen import SettingsScreen
 
@@ -50,10 +52,12 @@ class Editor:
         self.command_history: list[str] = []
         self.last_search: str = ""
         self.search_backwards = False
+        self.search_highlight_off = False  # 'nohl' until the next search
         self.quit_requested = False
         self.suspend_requested = False
         self.body_height = 20
         self.body_width = 80
+        self.click_map: dict[int, tuple[int, int, int]] = {}  # screen row -> (buffer row, left col, text x)
         self._pasting = False
         self._paste: list[str] = []
         self.keymap = cmds.build_keymap()
@@ -90,6 +94,10 @@ class Editor:
         if line is not None:
             row = line - 1 if line > 0 else len(doc.lines) + line
             doc.goto(max(0, row), max(0, (col or 1) - 1))
+        elif self.settings.remember_position and os.path.exists(full):
+            pos = config.recall_position(full)
+            if pos is not None:
+                doc.goto(*pos)
         if not os.path.exists(full):
             self.info("New File")
         elif doc.readonly:
@@ -120,12 +128,28 @@ class Editor:
         if not self.docs:
             self.quit_requested = True
             return
+        self.remember_positions([self.doc])
         del self.docs[self.index]
         if not self.docs:
             self.quit_requested = True
             return
         self.index = min(self.index, len(self.docs) - 1)
         self.info(f"Switched to {self.doc.name}")
+
+    def remember_positions(self, docs: list[Document] | None = None) -> None:
+        """Log where the cursor is in each file, for `remember_position`."""
+        if not self.settings.remember_position:
+            return
+        docs = self.docs if docs is None else docs
+        config.remember_positions({d.path: d.cursor for d in docs if d.path and d.diff is None})
+
+    def shutdown(self) -> None:
+        """Called once when the editor exits."""
+        self.remember_positions()
+
+    def save_settings(self) -> None:
+        path, n = config.save_config(self.settings)
+        self.info(f"Saved {n} setting{'s' if n != 1 else ''} to {path}")
 
     # -------------------------------------------------------------- messages
     def info(self, text: str) -> None:
@@ -148,6 +172,9 @@ class Editor:
             return
         if self._pasting:
             self._paste.append({"Enter": "\n", "Tab": "\t", "C-j": "\n"}.get(key, key if len(key) == 1 else ""))
+            return
+        if key.startswith(("Click:", "WheelUp:", "WheelDown:")):
+            self.mouse(key)
             return
         self.message = None if self.prompt is None else self.message
         self.highlight_match = None if self.prompt is None else self.highlight_match
@@ -226,6 +253,27 @@ class Editor:
 
     def run_line(self, line: str) -> None:
         cmds.run_command_line(self, line)
+
+    # ---------------------------------------------------------------- mouse
+    def mouse(self, key: str) -> None:
+        """Mouse events arrive as "Click:Y:X", "WheelUp:Y:X" or "WheelDown:Y:X" (screen cells)."""
+        kind, y, x = key.split(":")
+        y, x = int(y), int(x)
+        doc = self.doc
+        if self.prompt is not None or self.overlay is not None or doc is None or self.in_overview:
+            return
+        if kind == "Click":
+            hit = self.click_map.get(y - 1)  # the title bar is screen row 0
+            if hit is None:
+                return
+            row, left, text_x = hit
+            col = index_at_display_col(doc.lines[row], left + max(0, x - text_x), doc.settings.tab_size)
+            doc._before_move(False)
+            doc.set_cursor((row, col))
+            return
+        step = 3 if kind == "WheelDown" else -3
+        doc.scroll_row = max(0, min(max(0, doc.display_count() - 1), doc.scroll_row + step))
+        self.keep_cursor_in_view()
 
     # ---------------------------------------------------------------- paste
     def paste_text(self, text: str) -> None:
@@ -442,6 +490,7 @@ class Editor:
         pattern = self._pattern(self.last_search)
         if pattern is None:
             return False
+        self.search_highlight_off = False
         res = find(doc.lines, doc.cursor, pattern, forward=not backwards)
         if res is None:
             self.info(f'"{self.last_search}" not found')
@@ -453,6 +502,15 @@ class Editor:
         if wrapped:
             self.info("Search Wrapped")
         return True
+
+    def search_highlight_pattern(self):
+        """Pattern whose matches are all highlighted (`highlight_search`), or None."""
+        if not self.settings.highlight_search or not self.last_search or self.search_highlight_off:
+            return None
+        try:
+            return compile_query(self.last_search, self.settings.regex_search, self.settings.case_sensitive)
+        except re.error:
+            return None
 
     def replace_prompt(self, initial: str = "") -> None:
         doc = self.doc
@@ -642,7 +700,7 @@ class Editor:
         doc = self.doc
         rows = doc.layout()
         top = doc.scroll_row
-        bottom = top + max(1, self.body_height) - 1
+        bottom = last_visible_index(doc, self.body_height, self.body_width)
         idx = doc.display_index(doc.cursor[0])
         if top <= idx <= bottom:
             return
@@ -838,34 +896,59 @@ class Editor:
         if d.hunks:
             doc.goto(min(d.hunks[-1][0], len(doc.lines) - 1), 0)
 
-    def revert_hunk(self) -> None:
+    def revert_edit(self) -> None:
         """Restore the commit's version of the edit under the cursor."""
         doc = self.doc
         if doc.diff is None:
             self.error("Revert is available when editing a commit")
             return
-        lines, original = doc.lines, doc.diff.original
-        r = doc.cursor[0]
-        for tag, i1, i2, j1, j2 in diff_opcodes(original, lines):
-            if tag == "equal" or not (j1 <= r < j2 or (j1 == j2 == r)):
-                continue
-            old = original[i1:i2]
-            with doc.edit():
-                if j2 > j1 and old:
-                    doc.buffer.replace_lines(j1, j2 - 1, old)
-                elif j2 > j1:  # you inserted these lines
-                    if j2 < len(lines):
-                        doc.buffer.delete((j1, 0), (j2, 0))
-                    else:
-                        doc.buffer.delete((j1 - 1, len(lines[j1 - 1])), (j2 - 1, len(lines[j2 - 1])))
-                elif j1 < len(lines):  # you deleted these lines
-                    doc.buffer.insert((j1, 0), "\n".join(old) + "\n")
-                else:
-                    doc.buffer.insert(doc.buffer.end(), "\n" + "\n".join(old))
-                doc.cursor = doc.buffer.clamp((j1, 0))
+        if _restore_block(doc, doc.diff.original):
             self.info("Restored the commit's version here")
+        else:
+            self.info("You haven't changed anything here")
+
+    def revert_hunk(self) -> None:
+        """Drop the commit's change under the cursor (restore the pre-commit text)."""
+        doc = self.doc
+        if doc.diff is None:
+            self.error("Reverting a change is available when editing a commit")
             return
-        self.info("You haven't changed anything here")
+        if _restore_block(doc, doc.diff.base):
+            self.info("Reverted the commit's change here")
+        else:
+            self.info("The commit doesn't change anything here")
+
+
+def _restore_block(doc: Document, ref: list[str]) -> bool:
+    """Replace the changed block under the cursor with its text in `ref`.
+
+    A block of deleted lines counts as being under the cursor when the cursor
+    is on the line they were deleted before (or the last line, for lines
+    deleted at the end). Returns False if the cursor isn't in a changed block.
+    """
+    lines = doc.lines
+    r = doc.cursor[0]
+    for tag, i1, i2, j1, j2 in diff_opcodes(ref, lines):
+        if tag == "equal":
+            continue
+        if not (j1 <= r < j2 or (j1 == j2 and min(j1, len(lines) - 1) == r)):
+            continue
+        old = ref[i1:i2]
+        with doc.edit():
+            if j2 > j1 and old:
+                doc.buffer.replace_lines(j1, j2 - 1, old)
+            elif j2 > j1:  # inserted lines
+                if j2 < len(lines):
+                    doc.buffer.delete((j1, 0), (j2, 0))
+                else:
+                    doc.buffer.delete((j1 - 1, len(lines[j1 - 1])), (j2 - 1, len(lines[j2 - 1])))
+            elif j1 < len(lines):  # deleted lines
+                doc.buffer.insert((j1, 0), "\n".join(old) + "\n")
+            else:
+                doc.buffer.insert(doc.buffer.end(), "\n" + "\n".join(old))
+            doc.cursor = doc.buffer.clamp((j1, 0))
+        return True
+    return False
 
 
 class ReplaceSession:
