@@ -14,6 +14,7 @@ from dataclasses import dataclass
 
 from . import commands as cmds
 from . import config, gitcommit, languages
+from . import definitions as defs
 from .commit_session import CommitSession
 from .diffmodel import diff_opcodes
 from .document import Document, ReadOnlyError, decode
@@ -58,6 +59,9 @@ class Editor:
         self.body_height = 20
         self.body_width = 80
         self.click_map: dict[int, tuple[int, int, int]] = {}  # screen row -> (buffer row, left col, text x)
+        self.definition: defs.DefinitionPanel | None = None  # the show-definition panel on the right
+        self.panel_x: int | None = None  # screen column where that panel starts (set by build_frame)
+        self.jump_stack: list[tuple[Document, tuple[int, int]]] = []  # for jump-back
         self._pasting = False
         self._paste: list[str] = []
         self.keymap = cmds.build_keymap()
@@ -219,6 +223,9 @@ class Editor:
         if self.in_overview:
             self._overview_key(key)
             return
+        if key == "Esc" and self.definition is not None:
+            self.definition = None
+            return
         name = self.lookup(key)
         if name is not None:
             self.run(name)
@@ -261,6 +268,10 @@ class Editor:
         y, x = int(y), int(x)
         doc = self.doc
         if self.prompt is not None or self.overlay is not None or doc is None or self.in_overview:
+            return
+        if self.definition is not None and self.panel_x is not None and x >= self.panel_x:
+            if kind != "Click":
+                self.scroll_definition(3 if kind == "WheelDown" else -3)
             return
         if kind == "Click":
             hit = self.click_map.get(y - 1)  # the title bar is screen row 0
@@ -928,6 +939,191 @@ class Editor:
             self.info(f"Commented out {e - s} line{'s' if e - s != 1 else ''}")
         else:
             self.info("This change is already commented out")
+
+    # --------------------------------------------------------- definitions
+    def _label(self, path: str | None, fallback: str = "New Buffer") -> str:
+        if not path:
+            return fallback
+        rel = os.path.relpath(path, self.cwd)
+        return path if rel.startswith("..") else rel
+
+    def _doc_source(self, doc: Document) -> defs.Source:
+        return defs.Source(doc.title or self._label(doc.path, doc.name), doc.lines, doc.lang, doc=doc, path=doc.path)
+
+    def _file_source(self, path: str) -> defs.Source | None:
+        path = os.path.abspath(path)
+        for d in self.all_docs():
+            if d.path and os.path.abspath(d.path) == path:
+                return self._doc_source(d)
+        try:
+            if os.path.getsize(path) > 4 << 20:
+                return None
+            with open(path, "rb") as f:
+                text, _eol = decode(f.read())
+        except OSError:
+            return None
+        lines = text.split("\n")
+        return defs.Source(self._label(path), lines, languages.detect(path, lines[0]), path=path)
+
+    def locate_definitions(self, everywhere: bool = False):
+        """(symbol, [(source, definition), ...] best first) for the cursor, or None.
+
+        Other files are searched when this one has nothing better than a
+        declaration or an import (or always, with `everywhere`)."""
+        doc = self.doc
+        if doc.lang.name not in defs.SUPPORTED:
+            self.error(f"Definitions work in LLVM IR, Python and C/C++ files (this is {doc.lang.name})")
+            return None
+        r, c = doc.cursor
+        sym = defs.symbol_at(doc.lines, doc.lang, r, c)
+        if sym is None:
+            self.error("No symbol under the cursor")
+            return None
+        here = self._doc_source(doc)
+        found = [(here, d) for d in here.find(sym, r)]
+        if doc.lang.name == "python" and sym.access == "." and sym.qualifier not in (None, "self", "cls"):
+            # module.attr: look in the module the qualifier was imported from
+            q = defs.Symbol(sym.qualifier, r, 0, 0)
+            imp = next((d for d in here.find(q, r)[:1] if d.kind == "import"), None)
+            if imp is not None:
+                found = self._py_import_definitions(imp, sym.name, here.path) + found
+        if everywhere or not found or found[0][1].tier >= defs.WEAK:
+            ext = self._external_definitions(sym, here, found)
+            found = [sd for sd in ext if sd[1].tier < defs.WEAK] + found + [sd for sd in ext if sd[1].tier >= defs.WEAK]
+        return sym, found
+
+    def _py_import_definitions(self, imp: defs.Definition, attr: str | None, from_path: str | None, depth: int = 0):
+        """Definitions for a name bound by the import `imp` (or `attr` inside the imported module)."""
+        module = imp.module
+        name = imp.target  # from M import name
+        if attr is not None:
+            if name is not None:
+                module = module + name if module.endswith(".") else f"{module}.{name}"
+            name = attr
+        if depth > 3 or module is None:
+            return []
+        path = defs.python_module_path(module, from_path, self.cwd)
+        src = self._file_source(path) if path else None
+        if name is None:  # `import M`: the module itself
+            return [] if src is None else [(src, defs.Definition(0, 0, "module", 0, min(len(src.lines) - 1, 40)))]
+        out = []
+        if src is not None:
+            for d in src.find(defs.Symbol(name, -1, 0, 0), None):
+                if d.kind == "import" and not out:
+                    out += self._py_import_definitions(d, None, src.path, depth + 1)  # a re-export
+                elif d.tier < defs.WEAK:
+                    out.append((src, d))
+        if not out:  # from package import submodule
+            sub = module + name if module.endswith(".") else f"{module}.{name}"
+            path = defs.python_module_path(sub, from_path, self.cwd)
+            src = self._file_source(path) if path else None
+            if src is not None:
+                out.append((src, defs.Definition(0, 0, "module", 0, min(len(src.lines) - 1, 40))))
+        return out
+
+    def _external_definitions(self, sym: defs.Symbol, here: defs.Source, local):
+        family = ("c", "cpp") if here.lang.name in ("c", "cpp") else (here.lang.name,)
+        out = []
+        if here.lang.name == "python":
+            for _src, d in local:
+                if d.kind == "import":
+                    out += self._py_import_definitions(d, None, here.path)
+                    break
+        sources = [self._doc_source(d) for d in self.all_docs() if d is not here.doc and d.lang.name in family]
+        if here.lang.name in ("c", "cpp"):
+            open_paths = {os.path.abspath(s.path) for s in sources if s.path}
+            for path in defs.cpp_related_files(here.lines, here.path, self.cwd):
+                if path not in open_paths:
+                    src = self._file_source(path)
+                    if src is not None:
+                        sources.append(src)
+        bare = defs.Symbol(sym.name, -1, 0, 0, sym.qualifier, sym.access)
+        for src in sources:
+            out += [(src, d) for d in src.find(bare, None)]
+        out.sort(key=lambda sd: sd[1].tier)
+        return out
+
+    def _switch_to(self, doc: Document) -> bool:
+        if doc is self.doc:
+            return True
+        if self.commit is not None:
+            for i, e in enumerate(self.commit.entries):
+                if e.doc is doc:
+                    return self.commit.open(i)
+            return False
+        for i, d in enumerate(self.docs):
+            if d is doc:
+                self.index = i
+                return True
+        return False
+
+    def jump_to_definition(self) -> None:
+        res = self.locate_definitions()
+        if res is None:
+            return
+        sym, found = res
+        doc = self.doc
+        if not found:
+            self.info(f"No definition of {sym.name} found")
+            return
+        def elsewhere(found):
+            return next(((s, d) for s, d in found if not (s.doc is doc and (d.row, d.col) == (sym.row, sym.col))), None)
+
+        pick = elsewhere(found)
+        if pick is None:  # on the definition: try the declaration in another file (header <-> source)
+            pick = elsewhere(self.locate_definitions(everywhere=True)[1])
+        if pick is None:
+            self.info(f"This is the definition of {sym.name}")
+            return
+        src, d = pick
+        if src.doc is not None:
+            target = src.doc if self._switch_to(src.doc) else None
+        else:
+            target = self.open_file(src.path) if self.commit is None else None
+            if target is not None:
+                target.title = src.label if not os.path.isabs(src.label) else None
+        if target is None:
+            self._show(sym, src, d)
+            self.info(f"{sym.name} is defined in {src.label} (not part of this commit): shown on the right")
+            return
+        self.jump_stack.append((doc, doc.cursor))
+        del self.jump_stack[:-100]
+        target.goto(d.row, d.col)
+        where = "" if target is doc else f"{src.label}:"
+        self.info(f"{sym.name}: {d.kind} at {where}{d.row + 1} (M-B jumps back)")
+
+    def _show(self, sym: defs.Symbol, src: defs.Source, d: defs.Definition) -> None:
+        title = f"{sym.name} · {d.kind} · {src.label}:{d.row + 1}"
+        self.definition = defs.build_panel(title, src.lines, src.spans, d)
+
+    def show_definition(self) -> None:
+        res = self.locate_definitions()
+        if res is None:
+            return
+        sym, found = res
+        if not found:
+            self.info(f"No definition of {sym.name} found")
+            return
+        src, d = found[0]
+        self._show(sym, src, d)
+        self.info("Esc closes the definition panel, M-PgUp/M-PgDn scroll it")
+
+    def scroll_definition(self, delta: int) -> None:
+        panel = self.definition
+        if panel is None:
+            self.info("No definition is shown")
+            return
+        panel.scroll = max(0, min(len(panel.rows) - 1, panel.scroll + delta))
+
+    def jump_back(self) -> None:
+        live = self.all_docs()
+        while self.jump_stack:
+            doc, pos = self.jump_stack.pop()
+            if any(d is doc for d in live) and self._switch_to(doc):
+                doc.goto(*doc.buffer.clamp(pos))
+                self.info("Jumped back")
+                return
+        self.info("No earlier position to jump back to")
 
     def revert_hunk(self) -> None:
         """Drop the commit's change under the cursor (restore the pre-commit text)."""

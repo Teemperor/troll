@@ -525,6 +525,76 @@ def side_by_side_rows(ed, doc, height: int, width: int) -> tuple[list[list[Seg]]
     return out, cursor
 
 
+def definition_rows(ed, panel, height: int, width: int, tab: int) -> list[list[Seg]]:
+    """The show-definition panel: a title row, then the definition's lines (soft-wrapped)."""
+    body_h = max(0, height - 1)
+    panel.scroll = max(0, min(panel.scroll, len(panel.rows) - 1))
+    title = RowBuilder(width)
+    title.add(fit(" " + panel.title, width), "palette.label", "prompt")
+    out = [title.row()]
+    numbers = [r.number for r in panel.rows if r.number is not None]
+    num_w = len(str(max(numbers))) if numbers else 0
+    gw = num_w + 2
+    text_w = max(1, width - gw)
+    k = panel.scroll
+    while len(out) < height and k < len(panel.rows):
+        prow = panel.rows[k]
+        k += 1
+        if prow.number is None:
+            rb = RowBuilder(width)
+            rb.add(" " + prow.text, "fold", None)
+            out.append(rb.row())
+            continue
+        bg = "cursorline" if prow.current else None
+        line = prow.text
+        n = len(line)
+        fg = ["text"] * n
+        if ed.settings.highlight:
+            for a, b, token in prow.spans:
+                fg[a:min(b, n)] = [token] * (min(b, n) - a)
+        starts = wrap_starts(line, text_w, tab)
+        for j, st in enumerate(starts):
+            if len(out) >= height:
+                break
+            e = starts[j + 1] if j + 1 < len(starts) else n
+            rb = RowBuilder(width)
+            label = f" {prow.number:>{num_w}} " if j == 0 else " " * gw
+            rb.add(label, "gutter.current" if prow.current else "gutter", bg)
+            emit_cells(line, fg[:e], [None] * e, rb, text_w, display_col(line, st, tab), tab, False, bg)
+            if bg:
+                rb.pad("text", bg)
+            out.append(rb.row())
+    if k < len(panel.rows) and len(out) == height and height > 1:
+        rb = RowBuilder(width)
+        rest = len(panel.rows) - k + 1
+        rb.add(f" ↓ {rest} more line{'s' if rest != 1 else ''} (M-PgDn)", "fold", None)
+        out[-1] = rb.row()
+    while len(out) < height:
+        out.append([])
+    return out
+
+
+def panel_width(width: int) -> int:
+    """Columns taken by the definition panel (0 if the screen is too narrow)."""
+    if width < 50:
+        return 0
+    return min(max(30, width * 2 // 5), width - 25)
+
+
+def join_columns(left: list[Seg], left_w: int, right: list[Seg], width: int) -> list[Seg]:
+    lb = RowBuilder(left_w)
+    for seg in left:
+        lb.add(*seg)
+    lb.pad()
+    rb = RowBuilder(width)
+    for seg in lb.row():
+        rb.add(*seg)
+    rb.add("│", "palette.border", None)
+    for seg in right:
+        rb.add(*seg)
+    return rb.row()
+
+
 # --------------------------------------------------------- commit overview
 
 
@@ -900,6 +970,7 @@ def build_frame(ed, height: int, width: int) -> Frame:
     ed.body_height = body_h
     ed.body_width = width
     ed.click_map = {}
+    ed.panel_x = None
     rows: list[list[Seg]] = [title_row(ed, width)]
     cursor = None
     settings_cursor = None
@@ -909,6 +980,13 @@ def build_frame(ed, height: int, width: int) -> Frame:
         body, settings_cursor = settings_rows(ed.overlay, ed, body_h, width)
     elif ed.in_overview:
         body = overview_rows(ed, body_h, width)
+    elif ed.doc is not None and ed.definition is not None and panel_width(width):
+        pw = panel_width(width)
+        left_w = width - pw - 1
+        left, cursor = doc_rows(ed, ed.doc, body_h, left_w)
+        right = definition_rows(ed, ed.definition, body_h, pw, ed.doc.settings.tab_size)
+        body = [join_columns(left[i] if i < len(left) else [], left_w, right[i], width) for i in range(body_h)]
+        ed.panel_x = left_w + 1
     elif ed.doc is not None:
         body, cursor = doc_rows(ed, ed.doc, body_h, width)
     else:

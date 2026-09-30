@@ -760,6 +760,41 @@ def _lang(ed, args):
     ed.info(f"Language: {lang.name}")
 
 
+@command("jump-to-definition", "Jump to the definition of the name under the cursor (LLVM IR, Python, C/C++)",
+         keys=("M-f",), category="Search", aliases=("definition", "goto-definition", "gd"))
+def _jump_to_definition(ed, args):
+    ed.jump_to_definition()
+
+
+@command("show-definition", "Show the definition of the name under the cursor in a panel on the right",
+         keys=("M-v",), category="Search", aliases=("peek", "peek-definition"))
+def _show_definition(ed, args):
+    ed.show_definition()
+
+
+@command("hide-definition", "Close the definition panel (also Esc)", category="Search", needs_doc=False)
+def _hide_definition(ed, args):
+    ed.definition = None
+
+
+@command("definition-scroll-down", "Scroll the definition panel down", keys=("M-PageDown",), category="Search",
+         hidden=True)
+def _definition_down(ed, args):
+    ed.scroll_definition(max(1, ed.body_height - 2))
+
+
+@command("definition-scroll-up", "Scroll the definition panel up", keys=("M-PageUp",), category="Search",
+         hidden=True)
+def _definition_up(ed, args):
+    ed.scroll_definition(-max(1, ed.body_height - 2))
+
+
+@command("jump-back", "Go back to where you were before jumping to a definition", keys=("M-b",),
+         category="Search", aliases=("back",))
+def _jump_back(ed, args):
+    ed.jump_back()
+
+
 # ======================================================================
 # Commit editing
 # ======================================================================
@@ -872,6 +907,12 @@ EDITING A COMMIT
   the change under the cursor. M-Down/M-Up jump between changes, ^X goes back to the list.
   ^S rewrites the commit (later commits are replayed on top automatically; nothing
   is changed if that would conflict). Undo a rewrite with `git reset --keep ORIG_HEAD`.
+
+DEFINITIONS (LLVM IR, Python, C/C++)
+  M-F jumps to the definition of the name under the cursor (M-B jumps back), M-V shows
+  it in a panel on the right (Esc closes it, M-PgUp/M-PgDn scroll). In LLVM IR this
+  covers %values, labels, @globals, #attributes and !metadata (with the nodes it refers
+  to); for Python and C++ it's a best guess that also looks in imported/included files.
 
 SMART FORMATTING
   Enter keeps indentation, indents after ':' / '{' and continues comments and lists
