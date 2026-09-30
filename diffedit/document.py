@@ -193,10 +193,11 @@ class Document:
         """Display rows (with ghost/fold rows) for diff documents, else None."""
         if self.diff is None:
             return None
-        key = (self.buffer.version, self.diff.fold, self.cursor[0] if self.diff.fold else None, self.settings.fold_context)
+        side = self.settings.side_by_side
+        key = (self.buffer.version, self.diff.fold, self.cursor[0] if self.diff.fold else None, self.settings.fold_context, side)
         if key != self._layout_key:
             d = self.diff.get(self.buffer)
-            self._layout = build_rows(d, len(self.lines), self.diff.fold, self.settings.fold_context, self.cursor[0])
+            self._layout = build_rows(d, len(self.lines), self.diff.fold, self.settings.fold_context, self.cursor[0], side)
             self._layout_key = key
         return self._layout
 

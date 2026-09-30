@@ -215,3 +215,44 @@ def test_non_editable_entries(repo):
     ed.commit.selected = idx
     ed.keys("Enter")
     assert ed.in_overview and "can't be edited (binary)" in ed.message.text
+
+
+def test_side_by_side_view(repo):
+    target = make_history(repo)
+    ed = open_editor(repo, target)
+    ed.open_entry(2)
+    ed.run_line("side-by-side")
+    assert all(e.doc.settings.side_by_side for e in ed.commit.entries if e.doc)  # every file of the commit
+    doc = ed.doc
+    doc.goto(doc.lines.index("# Thsi helper is teh best"), 2)
+    f = build_frame(ed, 40, 120)
+    lines = f.text().split("\n")
+    assert "your version (editable)" in lines[1] and "before this commit" in lines[1]
+    comment_row = next(l for l in lines if "Thsi helper" in l)
+    left, right = comment_row.split("│")
+    assert "+ # Thsi helper" in left and right.strip() == ""  # added line: nothing on the right
+    removed_row = next(l for l in lines if "line 5" in l.split("│")[-1] and "-" in l.split("│")[-1])
+    assert removed_row.split("│")[0].strip() == ""  # removed line: nothing on the left
+    y, x = f.cursor
+    assert lines[y][x] == "T"  # the cursor sits on the character it points at
+    # the removed line's row is skipped by the cursor
+    doc.goto(doc.lines.index("line 4"), 0)
+    ed.keys("Down")
+    assert doc.lines[doc.cursor[0]] == "line 6"
+    # editing still works and is reflected on the left only
+    ed.type("X")
+    assert any("Xline 6" in l.split("│")[0] for l in build_frame(ed, 40, 120).text().split("\n"))
+    ed.run_line("side-by-side")
+    assert not doc.settings.side_by_side
+
+
+def test_side_by_side_from_settings_panel(repo):
+    target = make_history(repo)
+    ed = open_editor(repo, target)
+    ed.open_entry(1)
+    ed.run_line("settings")
+    panel = ed.overlay
+    panel.selected = [o.key for o in panel.options].index("side_by_side")
+    ed.keys("Enter", "Esc")
+    assert all(e.doc.settings.side_by_side for e in ed.commit.entries if e.doc)
+    assert ed.settings.side_by_side

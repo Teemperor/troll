@@ -251,6 +251,28 @@ class Editor:
         self.prompt = Choice(question, options, on_cancel)
         return self.prompt
 
+    def all_docs(self) -> list[Document]:
+        docs = list(self.docs)
+        if self.commit is not None:
+            docs += [e.doc for e in self.commit.entries if e.doc is not None]
+        return docs
+
+    def option_targets(self, key: str) -> list[Settings]:
+        """Settings objects a change to option `key` applies to: the editor
+        defaults plus the current file, or every open file for options that
+        are marked `all_files`, or just the editor for editor-wide ones."""
+        from .settings import OPTION_INFO
+
+        info = OPTION_INFO.get(key)
+        targets = [self.settings]
+        if info is not None and info.editor_wide:
+            return targets
+        if info is not None and info.all_files:
+            return targets + [d.settings for d in self.all_docs()]
+        if self.doc is not None:
+            targets.append(self.doc.settings)
+        return targets
+
     def show_settings(self) -> None:
         self.overlay = SettingsScreen(self)
 

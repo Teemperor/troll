@@ -20,6 +20,7 @@ Without installing: `python3 -m diffedit ...`
 - Unchanged code is **folded away** so you only see the diff with a few lines of context. `M-Z` toggles the fold.
 - Edit the text normally. Every line you change gets a yellow `*` in the gutter, so you can see what you've changed compared with the commit.
 - `M-↓` / `M-↑` jump between changes (and on to the next or previous file). `M->` / `M-<` switch files. `^X` goes back to the file list.
+- Prefer two columns? Turn on **Side-by-side diff** in `settings` (or run `side-by-side`). Your editable version is on the left, the version before the commit on the right, with the lines aligned. Removed lines are marked `-` on the right, and rows that only exist on the right are skipped by the cursor.
 - `^S` rewrites the commit. Any later commits are replayed on top of it automatically. The `revert` command undoes your edit at the cursor.
 
 How the rewrite works (`diffedit/gitcommit.py`):
@@ -73,4 +74,4 @@ The editor logic and the rendering are kept strictly apart:
 | `view.py` | turns editor state into a `Frame` of styled text (no curses) |
 | `tui/` | the only code that touches the terminal: key decoding and painting |
 
-Tests: `python3 -m pytest` (225 tests). They drive the editor with key names, check the `Frame` data, and create real temporary git repositories for the rewrite tests.
+Tests: `python3 -m pytest` (242 tests). They drive the editor with key names, check the `Frame` data, and create real temporary git repositories for the rewrite tests.

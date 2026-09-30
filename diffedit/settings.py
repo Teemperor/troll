@@ -23,6 +23,7 @@ class Settings:
     case_sensitive: bool = False
     regex_search: bool = False
     fold_context: int = 3
+    side_by_side: bool = False
 
     def copy(self) -> "Settings":
         return replace(self)
@@ -38,6 +39,7 @@ class OptionInfo:
     minimum: int = 1  # for numbers
     maximum: int = 999
     editor_wide: bool = False  # not per file (search flags, the help bar)
+    all_files: bool = False  # applies to every open file at once (e.g. how commit diffs are shown)
 
 
 OPTIONS: tuple[OptionInfo, ...] = (
@@ -57,8 +59,11 @@ OPTIONS: tuple[OptionInfo, ...] = (
     OptionInfo("help_lines", "Shortcut bar", "Show the two lines of shortcuts at the bottom", "Display", editor_wide=True),
     OptionInfo("case_sensitive", "Case-sensitive search", "Also toggled with M-C in the search prompt", "Search", editor_wide=True),
     OptionInfo("regex_search", "Regex search", "Also toggled with M-R in the search prompt", "Search", editor_wide=True),
+    OptionInfo("side_by_side", "Side-by-side diff",
+               "Your editable version on the left, the version before the commit on the right",
+               "Commit editing", all_files=True),
     OptionInfo("fold_context", "Context lines", "Unchanged lines shown around each change when editing a commit",
-               "Commit editing", maximum=50),
+               "Commit editing", maximum=50, all_files=True),
 )
 OPTION_INFO = {o.key: o for o in OPTIONS}
 
@@ -91,6 +96,9 @@ ALIASES = {
     "case": "case_sensitive",
     "regex": "regex_search",
     "context": "fold_context",
+    "sidebyside": "side_by_side",
+    "split": "side_by_side",
+    "sbs": "side_by_side",
 }
 
 TRUE = {"1", "on", "yes", "true", "y"}

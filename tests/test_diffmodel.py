@@ -90,3 +90,34 @@ def test_build_rows_unfolded_and_trailing_ghosts():
     d = compute(base, cur, cur)
     rows = build_rows(d, 1, fold=False, context=3, cursor_row=0)
     assert [(r.kind, r.text) for r in rows] == [("line", ""), ("ghost", "b"), ("ghost", "c")]
+
+
+def test_side_by_side_rows_pair_changes():
+    base = ["a", "old1", "old2", "old3", "z", ""]
+    cur = ["a", "new1", "z", "added", ""]
+    d = compute(base, cur, cur)
+    rows = build_rows(d, len(cur), fold=False, context=3, cursor_row=0, side_by_side=True)
+    pairs = [(r.kind, r.row, r.right) for r in rows]
+    assert pairs == [
+        ("line", 0, 0),      # a | a
+        ("line", 1, 1),      # new1 | old1
+        ("ghost", 2, 2),     #      | old2
+        ("ghost", 2, 3),     #      | old3
+        ("line", 2, 4),      # z | z
+        ("line", 3, None),   # added |
+        ("line", 4, 5),
+    ]
+    assert d.removed == {1, 2, 3}
+
+
+def test_side_by_side_folding_matches_unified():
+    base = [str(i) for i in range(30)]
+    cur = list(base)
+    cur[15] = "X"
+    d = compute(base, cur, cur)
+    side = build_rows(d, 30, fold=True, context=2, cursor_row=15, side_by_side=True)
+    unified = build_rows(d, 30, fold=True, context=2, cursor_row=15)
+    shown = lambda rows: [r.row for r in rows if r.kind == "line"]  # noqa: E731
+    assert shown(side) == shown(unified) == [13, 14, 15, 16, 17]
+    assert [r.count for r in side if r.kind == "fold"] == [13, 12]
+    assert next(r for r in side if r.row == 15 and r.kind == "line").right == 15

@@ -50,6 +50,9 @@ class LineDiff:
     edit_deletions: set[int] = field(default_factory=set)  # rows before which commit lines were deleted
     added_count: int = 0
     removed_count: int = 0
+    opcodes: list[Opcode] = field(default_factory=list)  # base -> current
+    base: list[str] = field(default_factory=list)
+    removed: set[int] = field(default_factory=set)  # base rows removed by the commit
 
     def hunk_at(self, row: int) -> int | None:
         for i, (s, e) in enumerate(self.hunks):
@@ -59,12 +62,14 @@ class LineDiff:
 
 
 def compute(base: list[str], original: list[str] | None, current: list[str]) -> LineDiff:
-    d = LineDiff()
-    for tag, i1, i2, j1, j2 in diff_opcodes(base, current):
+    d = LineDiff(base=base)
+    d.opcodes = diff_opcodes(base, current)
+    for tag, i1, i2, j1, j2 in d.opcodes:
         if tag == "equal":
             continue
         if tag in ("replace", "delete"):
             d.ghosts.setdefault(j1, []).extend(base[i1:i2])
+            d.removed.update(range(i1, i2))
             d.removed_count += i2 - i1
         if tag in ("replace", "insert"):
             d.added.update(range(j1, j2))
@@ -107,31 +112,65 @@ class Row:
     row: int  # buffer row ("line"), row the ghost precedes, or first folded row
     text: str = ""
     count: int = 0  # number of folded lines
+    right: int | None = None  # side-by-side: the base row shown next to it
 
 
-def build_rows(diff: LineDiff, n: int, fold: bool, context: int, cursor_row: int) -> list[Row]:
-    rows: list[Row] = []
-
-    def emit_line(r: int) -> None:
+def _unified_rows(diff: LineDiff, n: int):
+    """Removed lines as ghost rows right before the line they were removed at."""
+    for r in range(n + 1):
         for text in diff.ghosts.get(r, ()):
-            rows.append(Row("ghost", r, text))
-        rows.append(Row("line", r))
+            yield Row("ghost", r, text)
+        if r < n:
+            yield Row("line", r)
 
+
+def _side_by_side_rows(diff: LineDiff, n: int):
+    """Current lines paired with the base lines they replaced.
+
+    Unchanged lines pair 1:1; in a changed block removed and added lines are
+    paired in order, and removed lines left over get a row with no current
+    line (a ghost anchored after the block).
+    """
+    base = diff.base
+    for tag, i1, i2, j1, j2 in diff.opcodes:
+        if tag == "equal":
+            for k in range(i2 - i1):
+                yield Row("line", j1 + k, right=i1 + k)
+            continue
+        for k in range(max(i2 - i1, j2 - j1)):
+            i = i1 + k if k < i2 - i1 else None
+            if k < j2 - j1:
+                yield Row("line", j1 + k, right=i)
+            else:
+                yield Row("ghost", j2, base[i], right=i)
+
+
+def build_rows(diff: LineDiff, n: int, fold: bool, context: int, cursor_row: int, side_by_side: bool = False) -> list[Row]:
+    items = _side_by_side_rows(diff, n) if side_by_side else _unified_rows(diff, n)
     if not fold:
-        for r in range(n):
-            emit_line(r)
-    else:
-        pos = 0
-        for s, e in visible_intervals(diff, n, context, (cursor_row,)):
-            if s > pos:
-                rows.append(Row("fold", pos, count=s - pos))
-            for r in range(s, e):
-                emit_line(r)
-            pos = e
-        if pos < n:
-            rows.append(Row("fold", pos, count=n - pos))
-    for text in diff.ghosts.get(n, ()):
-        rows.append(Row("ghost", n, text))
+        return list(items)
+    intervals = visible_intervals(diff, n, context, (cursor_row,))
+
+    def visible(anchor: int) -> bool:
+        if anchor >= n:  # removed at the very end of the file
+            return not intervals or intervals[-1][1] >= n
+        return any(s <= anchor < e for s, e in intervals)
+
+    rows: list[Row] = []
+    hidden = 0
+    first = 0
+    for item in items:
+        if visible(item.row):
+            if hidden:
+                rows.append(Row("fold", first, count=hidden))
+                hidden = 0
+            rows.append(item)
+        elif item.kind == "line":
+            if not hidden:
+                first = item.row
+            hidden += 1
+    if hidden:
+        rows.append(Row("fold", first, count=hidden))
     return rows
 
 
@@ -144,6 +183,16 @@ class DiffState:
         self.fold = True
         self._cache_key = None
         self._diff: LineDiff | None = None
+        self._base_highlighter = None
+
+    def base_highlighter(self, lang):
+        """Syntax highlighter for the base (pre-commit) text, for the side-by-side view."""
+        from .buffer import Buffer
+        from .highlight import Highlighter
+
+        if self._base_highlighter is None or self._base_highlighter.lang is not lang:
+            self._base_highlighter = Highlighter(Buffer("\n".join(self.base)), lang)
+        return self._base_highlighter
 
     def get(self, buffer) -> LineDiff:
         if self._cache_key != buffer.version or self._diff is None:

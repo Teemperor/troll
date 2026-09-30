@@ -169,12 +169,16 @@ def _line_styles(ed, doc, row: int, upto: int, bracket_cells: set) -> tuple[list
 def render_text(ed, doc, row: int, rb: RowBuilder, width: int, base_bg: str | None, bracket_cells: set) -> None:
     line = doc.lines[row]
     tab = doc.settings.tab_size
-    left = doc.scroll_col
-    upto = index_at_display_col(line, left + width, tab) + 1
+    upto = index_at_display_col(line, doc.scroll_col + width, tab) + 1
     fg, bg = _line_styles(ed, doc, row, upto, bracket_cells)
-    show_ws = doc.settings.show_whitespace
+    emit_cells(line, fg, bg, rb, width, doc.scroll_col, tab, doc.settings.show_whitespace, base_bg)
+
+
+def emit_cells(line: str, fg: list[str], bg: list[str | None], rb: RowBuilder, width: int, left: int,
+               tab: int, show_ws: bool, base_bg: str | None) -> None:
+    """Draw `line` (styled per character) from display column `left`, `width` cells wide."""
     col = 0
-    for i in range(min(len(line), upto)):
+    for i in range(min(len(line), len(fg))):
         ch = line[i]
         disp = char_display(ch, col, tab)
         style = fg[i]
@@ -209,6 +213,8 @@ def _bracket_cells(doc) -> set:
 
 
 def doc_rows(ed, doc, height: int, width: int) -> tuple[list[list[Seg]], tuple[int, int] | None]:
+    if doc.diff is not None and doc.settings.side_by_side:
+        return side_by_side_rows(ed, doc, height, width)
     gw = gutter_width(doc)
     text_w = max(1, width - gw)
     adjust_scroll(doc, height, text_w)
@@ -262,6 +268,98 @@ def doc_rows(ed, doc, height: int, width: int) -> tuple[list[list[Seg]], tuple[i
             label = f" ⋯ {count} unchanged line{'s' if count != 1 else ''} (M-Z shows all) ⋯"
             rb.add(" " * gw, "fold", None)
             rb.add(label, "fold", None)
+        out.append(rb.row())
+    return out, cursor
+
+
+def _left_line(ed, doc, diff, row: int, width: int, num_w: int, gw: int, brackets: set) -> RowBuilder:
+    """Gutter + text of a current line (shared by the unified and side-by-side views)."""
+    rb = RowBuilder(width)
+    base_bg = "add" if row in diff.added else None
+    if num_w:
+        rb.add(f"{row + 1:>{num_w}}", "gutter.current" if row == doc.cursor[0] else "gutter", None)
+    edited = row in diff.edited or row in diff.edit_deletions
+    rb.add("*" if edited else " ", "gutter.edit", None)
+    rb.add("+" if row in diff.added else " ", "gutter.add", None)
+    rb.add(" ", "gutter", None)
+    render_text(ed, doc, row, rb, max(1, width - gw), base_bg, brackets)
+    rb.pad("text", base_bg)
+    return rb
+
+
+def _right_line(doc, diff, i: int | None, width: int, num_w: int) -> RowBuilder:
+    """Gutter + text of a base (pre-commit) line for the right pane."""
+    rb = RowBuilder(width)
+    if i is None:
+        rb.pad("text", None)
+        return rb
+    removed = i in diff.removed
+    bg = "del" if removed else None
+    if num_w:
+        rb.add(f"{i + 1:>{num_w}}", "gutter", None)
+    rb.add("-" if removed else " ", "gutter.del", None)
+    rb.add(" ", "gutter", None)
+    line = diff.base[i]
+    tab = doc.settings.tab_size
+    upto = index_at_display_col(line, doc.scroll_col + width, tab) + 1
+    n = min(len(line), upto)
+    fg = ["text"] * n
+    if doc.settings.highlight:
+        for s, e, token in doc.diff.base_highlighter(doc.lang).spans(i):
+            if s >= n:
+                break
+            fg[s:min(e, n)] = [token] * (min(e, n) - s)
+    text_w = max(0, width - rb.used)
+    emit_cells(line, fg, [None] * n, rb, text_w, doc.scroll_col, tab, doc.settings.show_whitespace, bg)
+    rb.pad("text", bg)
+    return rb
+
+
+def side_by_side_rows(ed, doc, height: int, width: int) -> tuple[list[list[Seg]], tuple[int, int] | None]:
+    """Commit diff with your editable version on the left and the parent version on the right."""
+    left_w = max(8, (width - 1) // 2)
+    right_w = max(0, width - left_w - 1)
+    numbers = doc.settings.line_numbers
+    num_w = max(3, len(str(len(doc.lines)))) if numbers else 0
+    gw = gutter_width(doc)
+    diff = doc.diff.get(doc.buffer)
+    base_num_w = max(3, len(str(len(diff.base)))) if numbers else 0
+    body_h = max(1, height - 1)
+    adjust_scroll(doc, body_h, max(1, left_w - gw))
+    layout = doc.layout()
+    brackets = _bracket_cells(doc)
+
+    header = RowBuilder(width)
+    header.add(fit(" your version (editable)", left_w), "label", None)
+    header.add("│", "palette.border", None)
+    header.add(fit(" before this commit" if diff.base else " (new file)", right_w), "label", None)
+    out: list[list[Seg]] = [header.row()]
+    cursor = None
+    for i in range(body_h):
+        idx = doc.scroll_row + i
+        rb = RowBuilder(width)
+        item = layout[idx] if idx < len(layout) else None
+        if item is not None and item.kind == "fold":
+            label = f" ⋯ {item.count} unchanged line{'s' if item.count != 1 else ''} (M-Z shows all) ⋯"
+            rb.add(" " * gw, "fold", None)
+            rb.add(label, "fold", None)
+            out.append(rb.row())
+            continue
+        if item is not None and item.kind == "line":
+            left = _left_line(ed, doc, diff, item.row, left_w, num_w, gw, brackets)
+            if item.row == doc.cursor[0]:
+                r, c = doc.cursor
+                x = gw + display_col(doc.lines[r], c, doc.settings.tab_size) - doc.scroll_col
+                cursor = (i + 1, max(gw, min(left_w - 1, x)))
+        else:
+            left = RowBuilder(left_w)
+            left.pad("text", None)
+        right = _right_line(doc, diff, item.right if item is not None else None, right_w, base_num_w)
+        for seg in left.row():
+            rb.add(*seg)
+        rb.add("│", "palette.border", None)
+        for seg in right.row():
+            rb.add(*seg)
         out.append(rb.row())
     return out, cursor
 

@@ -1,9 +1,7 @@
 """The settings panel: browse and change options with the keyboard.
 
 Pure logic (driven by key names); view.py renders it. Changes apply the
-same way as the `set` command: to the current file and to the editor's
-defaults for files opened later. Editor-wide options (search flags, the
-shortcut bar) only have the one value.
+same way as the `set` command (see Editor.option_targets).
 """
 
 from __future__ import annotations
@@ -54,11 +52,7 @@ class SettingsScreen:
         return str(v)
 
     def set(self, info: OptionInfo, value) -> None:
-        targets = [self.ed.settings]
-        doc = self.ed.doc
-        if doc is not None and not info.editor_wide:
-            targets.append(doc.settings)
-        for s in targets:
+        for s in self.ed.option_targets(info.key):
             setattr(s, info.key, value)
         self.error = None
 
