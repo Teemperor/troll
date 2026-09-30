@@ -1,0 +1,146 @@
+"""Command line entry points: `diffedit` and `git-diffedit` (so `git diffedit REV` works)."""
+
+from __future__ import annotations
+
+import argparse
+import os
+import re
+import sys
+
+from . import __version__
+from .editor import Editor
+from .gitcommit import GitError
+from .settings import Settings
+
+
+def build_parser() -> argparse.ArgumentParser:
+    p = argparse.ArgumentParser(
+        prog="diffedit",
+        description="A nano-style editor with syntax highlighting, smart formatting, "
+        "a command palette (^T) and an interactive editor for git commits.",
+        epilog="Examples:\n"
+        "  diffedit file.py                 edit a file\n"
+        "  diffedit +42 file.py             open at line 42 (+42,7 for a column)\n"
+        "  diffedit --commit HEAD~2         clean up the changes made by HEAD~2\n"
+        "  diffedit --commit                pick a commit from the log\n"
+        "  git diffedit HEAD~2              same, via the git-diffedit helper\n",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    p.add_argument("files", nargs="*", metavar="[+LINE[,COL]] FILE")
+    p.add_argument("-c", "--commit", nargs="?", const="", metavar="REV",
+                   help="edit the diff of a git commit (no REV: choose from the log)")
+    p.add_argument("-C", "--directory", default=None, metavar="DIR", help="run as if started in DIR")
+    p.add_argument("-T", "--tabsize", type=int, metavar="N", help="tab width / indent size")
+    p.add_argument("-E", "--tabstospaces", action="store_true", help="indent with spaces")
+    p.add_argument("--tabs", action="store_true", help="indent with tabs")
+    p.add_argument("-l", "--linenumbers", action="store_true", default=None, help="show line numbers (default)")
+    p.add_argument("-L", "--nolinenumbers", action="store_true", help="hide line numbers")
+    p.add_argument("-v", "--view", action="store_true", help="read-only mode")
+    p.add_argument("-i", "--noautoindent", action="store_true", help="disable automatic indentation")
+    p.add_argument("-P", "--nopairs", action="store_true", help="disable automatic bracket/quote pairing")
+    p.add_argument("-r", "--fill", type=int, metavar="N", help="justify width (default 80)")
+    p.add_argument("-Y", "--syntax", metavar="LANG", help="force a syntax/language")
+    p.add_argument("-x", "--nohelp", action="store_true", help="hide the two help lines")
+    p.add_argument("-V", "--version", action="version", version=f"diffedit {__version__}")
+    return p
+
+
+def split_positions(items: list[str]) -> list[tuple[str, int | None, int | None]]:
+    """Pair nano-style "+LINE[,COL]" arguments with the file that follows them."""
+    out = []
+    line = col = None
+    for item in items:
+        m = re.fullmatch(r"\+(-?\d*)(?:[,:](-?\d+))?", item)
+        if m:
+            line = int(m.group(1)) if m.group(1) not in ("", "-") else None
+            col = int(m.group(2)) if m.group(2) else None
+            continue
+        m = re.fullmatch(r"(.+?):(\d+)(?::(\d+))?", item)  # file.py:42[:7], like compiler output
+        if m and line is None and not os.path.exists(item):
+            out.append((m.group(1), int(m.group(2)), int(m.group(3)) if m.group(3) else None))
+            continue
+        out.append((item, line, col))
+        line = col = None
+    return out
+
+
+def make_settings(args) -> Settings:
+    s = Settings()
+    if args.tabsize:
+        s.tab_size = args.tabsize
+    if args.tabstospaces:
+        s.expand_tabs = True
+    if args.tabs:
+        s.expand_tabs = False
+    if args.nolinenumbers:
+        s.line_numbers = False
+    if args.noautoindent:
+        s.auto_indent = False
+    if args.nopairs:
+        s.auto_pair = False
+    if args.fill:
+        s.fill_width = args.fill
+    if args.nohelp:
+        s.help_lines = False
+    return s
+
+
+def setup_editor(args) -> Editor:
+    from . import languages
+
+    ed = Editor(make_settings(args), cwd=args.directory)
+    if args.commit is not None:
+        if args.commit:
+            ed.open_commit(args.commit)
+        else:
+            ed.commit_picker()
+            if ed.overlay is None:  # no commits
+                raise GitError(ed.message.text if ed.message else "no commits")
+    for path, line, col in split_positions(args.files):
+        doc = ed.open_file(path, line, col)
+        if args.view:
+            doc.readonly = True
+        if args.syntax:
+            lang = languages.get(args.syntax)
+            if lang:
+                doc.set_language(lang)
+        # explicit command line options beat detection
+        if args.tabsize:
+            doc.settings.tab_size = args.tabsize
+        if args.tabstospaces or args.tabs:
+            doc.settings.expand_tabs = bool(args.tabstospaces)
+    if not ed.docs and ed.commit is None and ed.overlay is None:
+        ed.new_doc()
+    if len(ed.docs) > 1:
+        ed.index = 0
+    return ed
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = build_parser().parse_args(argv)
+    try:
+        ed = setup_editor(args)
+    except (GitError, OSError) as e:
+        print(f"diffedit: {e}", file=sys.stderr)
+        return 1
+    if not sys.stdin.isatty() or not sys.stdout.isatty():
+        print("diffedit: needs a terminal", file=sys.stderr)
+        return 1
+    from .tui.app import run
+
+    run(ed)
+    return 0
+
+
+def git_main(argv: list[str] | None = None) -> int:
+    """`git diffedit [REV] [options]` - edit the diff of a commit."""
+    argv = list(sys.argv[1:] if argv is None else argv)
+    if argv and not argv[0].startswith("-"):
+        rev = argv.pop(0)
+    else:
+        rev = ""
+    return main(["--commit", rev, *argv] if rev else ["--commit", *argv])
+
+
+if __name__ == "__main__":  # pragma: no cover
+    sys.exit(main())

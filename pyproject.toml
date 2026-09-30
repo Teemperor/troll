@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "diffedit"
+version = "0.1.0"
+description = "A nano-style terminal editor with syntax highlighting, smart formatting and an interactive git commit editor"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = []
+
+[project.scripts]
+diffedit = "diffedit.cli:main"
+git-diffedit = "diffedit.cli:git_main"
+
+[tool.setuptools]
+packages = ["diffedit", "diffedit.tui"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
