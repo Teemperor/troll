@@ -435,7 +435,7 @@ def _replace_all(ed, args):
          aliases=("reflow", "wrap"))
 def _justify(ed, args):
     if args:
-        ed.doc.settings.fill_width = int(args)
+        setattr(ed.doc.settings, "message_width" if ed.doc.is_message else "fill_width", int(args))
     if not ed.doc.justify():
         ed.info("Nothing to justify here")
     else:
@@ -917,6 +917,12 @@ EDITING A COMMIT
   the change under the cursor. M-Down/M-Up jump between changes, ^X goes back to the list.
   ^S rewrites the commit (later commits are replayed on top automatically; nothing
   is changed if that would conflict). Undo a rewrite with `git reset --keep ORIG_HEAD`.
+
+COMMIT MESSAGES
+  In the commit message (and in COMMIT_EDITMSG from git) lines are 72 columns: ^J and
+  typing wrap the body there, a longer subject is flagged and a guide stripe marks the
+  limit. The subject, trailers (Signed-off-by: ...) and '#' lines are never rewrapped.
+  Change it with `set msgwidth 72`, `set msgguide 73` (0 = off), `set msgwrap off`.
 
 DEFINITIONS (LLVM IR, Python, C/C++)
   M-F jumps to the definition of the name under the cursor (M-B jumps back), M-V shows

@@ -23,6 +23,9 @@ class Settings:
     case_sensitive: bool = False
     regex_search: bool = False
     fold_context: int = 3
+    message_width: int = 72  # commit messages: justify/hard-wrap width and subject line limit
+    message_guide: int = 73  # commit messages: guide stripe column (0 = off); 73 = just past 72 characters
+    message_hard_wrap: bool = True  # commit messages: wrap the body as you type
     only_changes: bool = True  # commit editing: fold away the unchanged code between changes
     side_by_side: bool = True
     soft_wrap: bool = False
@@ -96,6 +99,15 @@ OPTIONS: tuple[OptionInfo, ...] = (
     OptionInfo("regex_search", "Regex search", "Also toggled with M-R in the search prompt", "Search", editor_wide=True),
     OptionInfo("highlight_search", "Highlight all matches",
                "Keep highlighting every match of the last search ('nohl' clears it)", "Search", editor_wide=True),
+    OptionInfo("message_width", "Message line width",
+               "Commit messages: width for ^J and hard wrapping; a longer subject line is flagged",
+               "Commit messages", minimum=10, maximum=500, all_files=True),
+    OptionInfo("message_guide", "Message guide column",
+               "Commit messages: guide stripe at this column (0 = off; 73 marks the 72-character limit)",
+               "Commit messages", minimum=0, maximum=500, all_files=True),
+    OptionInfo("message_hard_wrap", "Wrap messages while typing",
+               "Commit messages: break body lines past the width (never the subject, trailers or # lines)",
+               "Commit messages", all_files=True),
     OptionInfo("only_changes", "Only changes",
                "Hide the unchanged code between the commit's changes (off: show the whole file)",
                "Commit editing", all_files=True),
@@ -136,6 +148,14 @@ ALIASES = {
     "case": "case_sensitive",
     "regex": "regex_search",
     "context": "fold_context",
+    "messagewidth": "message_width",
+    "msgwidth": "message_width",
+    "commitwidth": "message_width",
+    "messageguide": "message_guide",
+    "msgguide": "message_guide",
+    "commitguide": "message_guide",
+    "messagewrap": "message_hard_wrap",
+    "msgwrap": "message_hard_wrap",
     "onlychanges": "only_changes",
     "changes": "only_changes",
     "fold": "only_changes",

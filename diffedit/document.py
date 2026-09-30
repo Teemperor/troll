@@ -77,7 +77,7 @@ class Document:
         self.center_pending = False
         self.readonly = False
         self.lang = lang or languages.detect(path, self.buffer.lines[0])
-        self.highlighter = Highlighter(self.buffer, self.lang)
+        self.highlighter = Highlighter(self.buffer, self.lang, first_line_limit=lambda: self.fill_width)
         self.original_lines = list(self.buffer.lines)
         self.diff: DiffState | None = None
         self._layout_key = None
@@ -120,6 +120,23 @@ class Document:
         self.highlighter.set_language(lang)
 
     # ---------------------------------------------------------- properties
+    @property
+    def is_message(self) -> bool:
+        """A commit message (in the commit editor, or COMMIT_EDITMSG from git)."""
+        return self.lang.name == "gitcommit"
+
+    @property
+    def fill_width(self) -> int:
+        return self.settings.message_width if self.is_message else self.settings.fill_width
+
+    @property
+    def guide_column(self) -> int:
+        return self.settings.message_guide if self.is_message else self.settings.guide_column
+
+    @property
+    def hard_wrap(self) -> bool:
+        return self.settings.message_hard_wrap if self.is_message else self.settings.hard_wrap
+
     @property
     def lines(self) -> list[str]:
         return self.buffer.lines
@@ -384,14 +401,14 @@ class Document:
                     delta = len(new) - len(old)
                     self.buffer.replace_lines(r, r, [new])
                     self.cursor = (r, max(0, self.cursor[1] + delta))
-            if self.settings.hard_wrap and not ch.isspace():
+            if self.hard_wrap and not ch.isspace() and (not self.is_message or af.is_message_prose(self.lines, r)):
                 self._hard_wrap(r)
         self.goal_col = None
 
     def _hard_wrap(self, r: int) -> None:
-        """Break row `r` at the last blank that fits in fill_width (nano's breaklonglines)."""
+        """Break row `r` at the last blank that fits in the fill width (nano's breaklonglines)."""
         line = self.lines[r]
-        width, tab = self.settings.fill_width, self.settings.tab_size
+        width, tab = self.fill_width, self.settings.tab_size
         if display_width(line, tab) <= width:
             return
         prefix = af.line_prefix(line, self.lang)
@@ -582,7 +599,7 @@ class Document:
 
     def justify(self, whole: bool = False) -> bool:
         """Reflow the paragraph at the cursor, the selection, or everything."""
-        width = self.settings.fill_width
+        width = self.fill_width
         tab = self.settings.tab_size
         if whole or self.selection() is not None:
             r1, r2 = (0, len(self.lines) - 1) if whole else self.selected_rows()

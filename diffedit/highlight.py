@@ -99,8 +99,9 @@ class Highlighter:
 
     CACHE_SIZE = 4096
 
-    def __init__(self, buffer, lang: Language):
+    def __init__(self, buffer, lang: Language, first_line_limit=None):
         self.buffer = buffer
+        self.first_line_limit = first_line_limit  # callable overriding lang.first_line_limit
         self.set_language(lang)
         buffer.add_listener(self._on_change)
 
@@ -137,14 +138,16 @@ class Highlighter:
 
     def _tokenize(self, row: int, state) -> tuple[list[Span], int | None]:
         text = self.buffer.lines[row]
-        key = (text, state, row == 0)
+        limit = (self.first_line_limit() if self.first_line_limit else self.lang.first_line_limit) \
+            if row == 0 and self.lang.first_line_token else 0
+        key = (text, state, row == 0, limit)
         hit = self._cache.get(key)
         if hit is not None:
             self._cache.move_to_end(key)
             return hit
         spans, end = self.tokenizer.tokenize(text, state)
         if row == 0 and self.lang.first_line_token and not text.startswith("#"):
-            limit = self.lang.first_line_limit or len(text)
+            limit = limit or len(text)
             spans = [(0, min(len(text), limit), self.lang.first_line_token)]
             if len(text) > limit:
                 spans.append((limit, len(text), "error"))

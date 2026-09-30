@@ -265,7 +265,7 @@ def _line_styles(ed, doc, row: int, upto: int, marks: Marks) -> tuple[list[str],
 
 def _guide(doc) -> int | None:
     """Display column of the guide stripe (0-based), or None."""
-    return doc.settings.guide_column - 1 if doc.settings.guide_column > 0 else None
+    return doc.guide_column - 1 if doc.guide_column > 0 else None
 
 
 def render_text(ed, doc, row: int, rb: RowBuilder, width: int, base_bg: str | None, marks: Marks) -> None:

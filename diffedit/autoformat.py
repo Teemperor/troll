@@ -9,7 +9,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
-from .languages import Language
+from .languages import SCISSORS, TRAILER, Language
 from .settings import Settings
 from .textutil import BRACKET_PAIRS, CLOSERS, OPENERS, display_width, find_matching_bracket, leading_ws
 
@@ -371,7 +371,28 @@ def _breaks(p: Prefix, lang: Language) -> bool:
     body = _body(p)
     if not body or body == "*/":
         return True
+    if lang.name == "gitcommit":
+        text = p.first + body
+        return text.startswith("#") or re.match(TRAILER, text) is not None
     return lang.name == "markdown" and body.startswith(("```", "#", "|"))
+
+
+def message_end(lines: list[str]) -> int:
+    """Last row of a commit message that is prose: before git's scissors line
+    (and the diff `git commit -v` puts below it)."""
+    for r, line in enumerate(lines):
+        if re.match(SCISSORS, line):
+            return r - 1
+    return len(lines) - 1
+
+
+def is_message_prose(lines: list[str], row: int) -> bool:
+    """Whether `row` of a commit message may be wrapped: not the subject,
+    a '#' comment, a trailer or below the scissors line."""
+    line = lines[row]
+    if row == 0 or line.startswith("#") or re.match(TRAILER, line):
+        return False
+    return row <= message_end(lines[: row + 1])
 
 
 def _opens_block(p: Prefix) -> bool:
@@ -381,6 +402,10 @@ def _opens_block(p: Prefix) -> bool:
 def find_paragraph(lines: list[str], row: int, lang: Language, lo: int = 0, hi: int | None = None) -> tuple[int, int] | None:
     """Rows [first, last] of the paragraph containing `row`, or None."""
     hi = len(lines) - 1 if hi is None else hi
+    if lang.name == "gitcommit":  # the subject line stands alone; nothing below the scissors counts
+        if row == 0 or row > message_end(lines[: row + 1]):
+            return None
+        lo = max(lo, 1)
     p = line_prefix(lines[row], lang)
     if _breaks(p, lang):
         return None
@@ -466,7 +491,8 @@ def justify_range(lines: list[str], lo: int, hi: int, lang: Language, width: int
     """Reflow every paragraph between rows lo and hi; returns the new lines for that range."""
     out: list[str] = []
     r = lo
-    while r <= hi:
+    stop = min(hi, message_end(lines)) if lang.name == "gitcommit" else hi
+    while r <= stop:
         para = find_paragraph(lines, r, lang, lo, hi)
         if para is None:
             out.append(lines[r])
@@ -477,4 +503,5 @@ def justify_range(lines: list[str], lo: int, hi: int, lang: Language, width: int
         out.extend(lines[r:first])
         out.extend(justify_paragraph(lines, first, last, lang, width, tab_size))
         r = last + 1
+    out.extend(lines[r : hi + 1])
     return out

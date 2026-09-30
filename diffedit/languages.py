@@ -117,6 +117,11 @@ PREPROC = (
     ("keyword", r"@\w+"),  # Objective-C
 )
 
+# Commit messages: trailer lines ("Signed-off-by: ...") and git's scissors line,
+# below which `git commit -v` puts the diff.
+TRAILER = r"^(?:[A-Z][\w-]*-by|Fixes|Closes|Refs|Change-Id|Link|Bug|Reviewed-on|Co-authored-by):(?= )"
+SCISSORS = r"^# -+ >8 -+$"
+
 LANGUAGES: list[Language] = [
     Language(
         name="python",
@@ -543,7 +548,7 @@ LANGUAGES: list[Language] = [
         filenames=("COMMIT_EDITMSG", "MERGE_MSG", "TAG_EDITMSG", "SQUASH_MSG", "git-rebase-todo"),
         rules=(
             ("comment", r"^#.*"),
-            ("key", r"^(?:[A-Z][\w-]*-by|Fixes|Closes|Refs|Change-Id|Link|Bug|Reviewed-on|Co-authored-by):(?= )"),
+            ("key", TRAILER),
             ("link", r"\bhttps?://\S+"),
             ("code", r"`[^`]+`"),
         ),
