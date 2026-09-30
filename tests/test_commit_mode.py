@@ -78,7 +78,7 @@ def test_ghost_lines_and_folding_in_frame(repo):
     rows = ed.doc.layout()
     assert any(r.kind == "ghost" and r.text == "line 5" for r in rows)
     ed.keys("M-z")
-    assert not ed.doc.diff.fold
+    assert not ed.doc.settings.only_changes
     assert "unchanged lines" not in build_frame(ed, 60, 100).text()
 
 
@@ -352,3 +352,40 @@ def test_comment_hunk_cpp_and_python(repo):
     doc.goto(2, 0)
     run_palette(ed, "comment-hunk")
     assert doc.lines[:3] == ["x = 1", "# if x:", "#     y = 2"]
+
+
+def test_only_changes_mode(repo):
+    target = make_history(repo)
+    ed = open_editor(repo, target)
+    ed.open_entry(2)
+    doc = ed.doc
+    assert doc.settings.only_changes  # on by default: unchanged code is folded
+    assert "unchanged lines" in build_frame(ed, 40, 100).text()
+    run_palette(ed, "only-changes off")
+    assert "Only-changes mode off" in ed.message.text
+    assert all(e.doc.settings.only_changes is False for e in ed.commit.entries if e.doc)  # every file
+    assert not ed.settings.only_changes
+    frame = build_frame(ed, 30, 100).text()
+    assert "unchanged lines" not in frame and "line 39" not in frame
+    doc.goto(39, 0)
+    assert "line 39" in build_frame(ed, 30, 100).text()  # the whole file is reachable
+    run_palette(ed, "only-changes off")  # explicit values don't toggle
+    assert not doc.settings.only_changes
+    run_palette(ed, "only-changes")  # no argument: toggle
+    assert doc.settings.only_changes
+    assert "unchanged lines" in build_frame(ed, 40, 100).text()
+    run_palette(ed, "only-changes maybe")
+    assert "Expected on or off" in ed.message.text and doc.settings.only_changes
+
+
+def test_only_changes_from_settings_and_config(repo):
+    target = make_history(repo)
+    ed = open_editor(repo, target, only_changes=False)
+    ed.open_entry(2)
+    assert "unchanged lines" not in build_frame(ed, 60, 100).text()
+    run_palette(ed, "set onlychanges on")
+    assert all(e.doc.settings.only_changes for e in ed.commit.entries if e.doc)
+    assert "unchanged lines" in build_frame(ed, 40, 100).text()
+    ed.commit.close()
+    run_palette(ed, "only-changes")  # works from the file list too
+    assert not ed.settings.only_changes

@@ -196,10 +196,11 @@ class Document:
         if self.diff is None:
             return None
         side = self.settings.side_by_side
-        key = (self.buffer.version, self.diff.fold, self.cursor[0] if self.diff.fold else None, self.settings.fold_context, side)
+        fold = self.settings.only_changes
+        key = (self.buffer.version, fold, self.cursor[0] if fold else None, self.settings.fold_context, side)
         if key != self._layout_key:
             d = self.diff.get(self.buffer)
-            self._layout = build_rows(d, len(self.lines), self.diff.fold, self.settings.fold_context, self.cursor[0], side)
+            self._layout = build_rows(d, len(self.lines), fold, self.settings.fold_context, self.cursor[0], side)
             self._layout_key = key
         return self._layout
 

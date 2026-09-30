@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING, Callable
 
 from . import languages
 from .search import count_words
-from .settings import resolve_option, set_option
+from .settings import FALSE, TRUE, resolve_option, set_option
 
 if TYPE_CHECKING:  # pragma: no cover
     from .editor import Editor
@@ -835,16 +835,26 @@ def _prev_change(ed, args):
     ed.next_change(-1)
 
 
-@command("fold", "Toggle hiding unchanged lines (show only the diff)", keys=("M-z",), category="Commit",
-         aliases=("focus", "unfold"))
-def _fold(ed, args):
-    doc = ed.doc
-    if doc.diff is None:
-        ed.error("Folding is available when editing a commit")
+@command("only-changes", "Toggle only-changes mode: on hides the unchanged code between changes, off shows "
+         "whole files ('only-changes on/off')", keys=("M-z",), category="Commit", args="[on|off]",
+         aliases=("fold", "focus", "unfold", "changes"), needs_doc=False, overview=True)
+def _only_changes(ed, args):
+    word = args.strip().lower()
+    if word in TRUE:
+        on = True
+    elif word in FALSE:
+        on = False
+    elif word:
+        ed.error(f"Expected on or off, not '{args.strip()}'")
         return
-    doc.diff.fold = not doc.diff.fold
-    doc.center_pending = True
-    ed.info("Showing only changes" if doc.diff.fold else "Showing the whole file")
+    else:
+        on = not (ed.doc.settings if ed.doc is not None else ed.settings).only_changes
+    for t in ed.option_targets("only_changes"):
+        t.only_changes = on
+    if ed.doc is not None:
+        ed.doc.center_pending = True
+    ed.info("Only-changes mode on: unchanged code is folded away" if on
+            else "Only-changes mode off: showing the whole file")
 
 
 @command("side-by-side", "Toggle showing the commit's diff side by side (old version on the right)",
@@ -901,7 +911,7 @@ EDITING A COMMIT
   You get a list of the files the commit touched plus its message. Open one with Enter:
   it shows the file as of that commit, with the commit's diff overlaid - added lines
   are green (+), removed lines are shown in red (-) and can't be edited. Unchanged
-  code is folded away (M-Z toggles). The version before the commit is shown in a
+  code is folded away: that's only-changes mode, M-Z turns it off to see whole files. The version before the commit is shown in a
   right-hand column (`side-by-side` switches to a unified view and back). Just edit
   the text; lines you changed are marked with a yellow *. `comment-hunk` comments out
   the change under the cursor. M-Down/M-Up jump between changes, ^X goes back to the list.

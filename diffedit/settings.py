@@ -23,6 +23,7 @@ class Settings:
     case_sensitive: bool = False
     regex_search: bool = False
     fold_context: int = 3
+    only_changes: bool = True  # commit editing: fold away the unchanged code between changes
     side_by_side: bool = True
     soft_wrap: bool = False
     hard_wrap: bool = False
@@ -95,6 +96,9 @@ OPTIONS: tuple[OptionInfo, ...] = (
     OptionInfo("regex_search", "Regex search", "Also toggled with M-R in the search prompt", "Search", editor_wide=True),
     OptionInfo("highlight_search", "Highlight all matches",
                "Keep highlighting every match of the last search ('nohl' clears it)", "Search", editor_wide=True),
+    OptionInfo("only_changes", "Only changes",
+               "Hide the unchanged code between the commit's changes (off: show the whole file)",
+               "Commit editing", all_files=True),
     OptionInfo("side_by_side", "Side-by-side diff",
                "Your editable version on the left, the version before the commit on the right",
                "Commit editing", all_files=True),
@@ -132,6 +136,9 @@ ALIASES = {
     "case": "case_sensitive",
     "regex": "regex_search",
     "context": "fold_context",
+    "onlychanges": "only_changes",
+    "changes": "only_changes",
+    "fold": "only_changes",
     "sidebyside": "side_by_side",
     "split": "side_by_side",
     "sbs": "side_by_side",

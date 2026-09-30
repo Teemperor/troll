@@ -180,7 +180,6 @@ class DiffState:
     def __init__(self, base: list[str], original: list[str]):
         self.base = base
         self.original = original
-        self.fold = True
         self._cache_key = None
         self._diff: LineDiff | None = None
         self._base_highlighter = None
