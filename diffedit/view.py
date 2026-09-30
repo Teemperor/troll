@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from . import __version__
 from .commit_session import STATUS_NAMES
 from .prompt import Choice, HelpScreen, Picker, Prompt
+from .settings_screen import SettingsScreen
 from .textutil import char_display, char_width, display_col, find_matching_bracket, index_at_display_col
 
 Seg = tuple[str, str, "str | None"]  # (text, fg style, bg style)
@@ -90,12 +91,14 @@ def body_height(ed, height: int) -> int:
 
 
 def gutter_width(doc) -> int:
+    """Width of what doc_rows draws before the text: line number, diff markers
+    (edited + added), then a single separating space."""
     w = 0
     if doc.settings.line_numbers:
-        w = max(3, len(str(len(doc.lines)))) + 1
+        w += max(3, len(str(len(doc.lines))))
     if doc.diff is not None:
-        w += 3
-    return w
+        w += 2
+    return w + 1 if w else 0
 
 
 def adjust_scroll(doc, height: int, text_width: int) -> None:
@@ -403,6 +406,83 @@ def help_rows(h: HelpScreen, height: int, width: int) -> list[list[Seg]]:
     return rows
 
 
+def settings_rows(sc: SettingsScreen, ed, height: int, width: int) -> tuple[list[list[Seg]], tuple[int, int] | None]:
+    """The settings panel: grouped options, the selected one's description at the bottom."""
+    sc.height = height
+    lines: list[list[Seg]] = []
+    option_line: dict[int, int] = {}
+    cursor_col = None
+    label_w = max(len(o.label) for o in sc.options) + 2
+    doc = ed.doc
+    scope = f"{doc.name} and files opened later" if doc is not None else "files opened from now on"
+
+    rb = RowBuilder(width)
+    rb.add(" Settings", "heading")
+    rb.add(f"   changes apply to {scope}", "comment")
+    lines.append(rb.row())
+    section = None
+    for i, info in enumerate(sc.options):
+        if info.section != section:
+            section = info.section
+            lines.append([])
+            rb = RowBuilder(width)
+            rb.add("  " + section.upper(), "label")
+            lines.append(rb.row())
+        sel = i == sc.selected
+        bg = "selection" if sel else None
+        rb = RowBuilder(width)
+        rb.add(" ▸ " if sel else "   ", "label", bg)
+        rb.add(fit(info.label, label_w), "text", bg)
+        value = sc.value(info)
+        changed = "keyword" if not sc.is_default(info) else "text"
+        if sel and sc.editing is not None:
+            rb.add("[", "label", bg)
+            cursor_col = rb.used + sc.editing.cursor
+            rb.add(sc.editing.text or " ", "palette.input", "prompt")
+            rb.add("]", "label", bg)
+            rb.add(f"  {info.minimum}-{info.maximum}, Enter to accept", "comment", bg)
+        elif isinstance(value, bool):
+            rb.add("[x] on " if value else "[ ] off", changed, bg)
+        else:
+            rb.add(f"‹ {sc.display(info)} ›", changed, bg)
+        if not sc.is_default(info) and not (sel and sc.editing is not None):
+            rb.add("  (changed)", "comment", bg)
+        rb.pad("text", bg)
+        option_line[i] = len(lines)
+        lines.append(rb.row())
+
+    footer: list[list[Seg]] = []
+    info = sc.current
+    rb = RowBuilder(width)
+    rb.add("─" * width, "palette.border")
+    footer.append(rb.row())
+    rb = RowBuilder(width)
+    note = "  (editor-wide)" if info.editor_wide else ""
+    rb.add(f" {info.label}: ", "prompt.label")
+    rb.add(info.help + note, "text")
+    footer.append(rb.row())
+    if sc.error:
+        rb = RowBuilder(width)
+        rb.add(" " + sc.error, "status.error")
+        footer.append(rb.row())
+
+    list_h = max(1, height - len(footer))
+    target = option_line[sc.selected]
+    if target < sc.scroll:
+        sc.scroll = max(0, target - 1)  # keep the section heading in view when scrolling up
+    elif target >= sc.scroll + list_h:
+        sc.scroll = target - list_h + 1
+    sc.scroll = max(0, min(sc.scroll, max(0, len(lines) - list_h)))
+    visible = lines[sc.scroll : sc.scroll + list_h]
+    while len(visible) < list_h:
+        visible.append([])
+    rows = (visible + footer)[:height]
+    cursor = None
+    if cursor_col is not None:
+        cursor = (target - sc.scroll, min(width - 1, cursor_col))
+    return rows, cursor
+
+
 # ------------------------------------------------------------ bars
 
 
@@ -499,6 +579,8 @@ HELP_SEARCH = [
 HELP_PROMPT = [("Enter", "Accept"), ("Tab", "Complete"), ("↑↓", "History"), ("^C", "Cancel")]
 HELP_PICKER = [("↑↓", "Select"), ("Enter", "Run"), ("Tab", "Complete"), ("Esc", "Cancel"), ("type", "to filter")]
 HELP_HELP = [("^X", "Close"), ("^Y", "Prev Page"), ("^V", "Next Page"), ("↑↓", "Scroll")]
+HELP_SETTINGS = [("↑↓", "Select"), ("Enter", "Change"), ("←→", "Adjust"), ("D", "Default"), ("Esc", "Close")]
+HELP_SETTINGS_EDIT = [("0-9", "Type a number"), ("Enter", "Accept"), ("Esc", "Cancel")]
 
 
 def help_items(ed) -> list[tuple[str, str]]:
@@ -506,6 +588,8 @@ def help_items(ed) -> list[tuple[str, str]]:
         return HELP_PICKER
     if isinstance(ed.overlay, HelpScreen):
         return HELP_HELP
+    if isinstance(ed.overlay, SettingsScreen):
+        return HELP_SETTINGS_EDIT if ed.overlay.editing is not None else HELP_SETTINGS
     if isinstance(ed.prompt, Choice):
         items = [(keys[0].upper(), label) for keys, label, _ in ed.prompt.options]
         return items + [("^C", "Cancel")]
@@ -550,8 +634,11 @@ def build_frame(ed, height: int, width: int) -> Frame:
     ed.body_width = width
     rows: list[list[Seg]] = [title_row(ed, width)]
     cursor = None
+    settings_cursor = None
     if isinstance(ed.overlay, HelpScreen):
         body = help_rows(ed.overlay, body_h, width)
+    elif isinstance(ed.overlay, SettingsScreen):
+        body, settings_cursor = settings_rows(ed.overlay, ed, body_h, width)
     elif ed.in_overview:
         body = overview_rows(ed, body_h, width)
     elif ed.doc is not None:
@@ -572,8 +659,10 @@ def build_frame(ed, height: int, width: int) -> Frame:
     rows.append(status)
     if status_x is not None:
         cursor = (len(rows) - 1, status_x)
-    if isinstance(ed.overlay, HelpScreen) or ed.in_overview:
+    if isinstance(ed.overlay, (HelpScreen, SettingsScreen)) or ed.in_overview:
         cursor = cursor if status_x is not None else None
+    if settings_cursor is not None:
+        cursor = (settings_cursor[0] + 1, settings_cursor[1])
     if ed.settings.help_lines and height >= 8:
         rows.extend(help_bar_rows(help_items(ed), width))
     rows = rows[:height]

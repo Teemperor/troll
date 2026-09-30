@@ -43,6 +43,8 @@ goto 120:4    set tabsize 2    lang rust    commit HEAD~3    justify 72
 s/foo/bar/g   !sort (filters the selection)   /needle   42   format
 ```
 
+Run `settings` (or just `set`) to open a panel listing every option with its current value and a description. Use ↑/↓ to pick an option. Enter or Space toggles a switch or cycles a choice, ←/→ adjusts a number, typing digits enters a number directly, and `d` resets the option to its default. Changes apply to the current file and to any files you open afterwards.
+
 ## Formatting helpers
 
 - Enter keeps the current indentation. It indents after `:`, `{`, `(` (but not when the colon is inside a comment), splits `{|}` into a block, and dedents after `return`.

@@ -171,3 +171,22 @@ def test_picker_ranking_prefers_label_then_aliases():
     assert p.filtered()[0].label == "justify"
     p.field.set("line")
     assert p.filtered()[0].label == "goto"
+
+
+def test_cursor_sits_on_the_character_it_points_at():
+    from diffedit.diffmodel import DiffState
+    from diffedit.document import Document
+    from diffedit.editor import Editor
+
+    for numbers in (True, False):
+        for diff in (False, True):
+            doc = Document("abcdef\n")
+            doc.settings.line_numbers = numbers
+            if diff:
+                doc.diff = DiffState(["x", ""], ["abcdef", ""])
+            ed = Editor()
+            ed.add_doc(doc)
+            doc.set_cursor((0, 2))
+            f = build_frame(ed, 12, 60)
+            y, x = f.cursor
+            assert f.text().split("\n")[y][x] == "c", (numbers, diff)

@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING, Callable
 
 from . import languages
 from .search import count_words
-from .settings import option_names, set_option
+from .settings import set_option
 
 if TYPE_CHECKING:  # pragma: no cover
     from .editor import Editor
@@ -681,12 +681,17 @@ command("auto-pair", "Toggle automatic bracket/quote pairing", category="Display
         needs_doc=False)(_toggle("auto_pair", "Auto pairing"))
 
 
-@command("set", "Change an option: 'set tabsize 2', 'set spaces off', 'set fill 72', 'set' lists them",
+@command("settings", "Browse and change all options in a settings panel", needs_doc=False, overview=True,
+         aliases=("preferences", "prefs", "options", "config"), category="Display")
+def _settings(ed, args):
+    ed.show_settings()
+
+
+@command("set", "Change an option: 'set tabsize 2', 'set spaces off', 'set fill 72' ('set' opens the panel)",
          args="OPTION [VALUE]", category="Display", needs_doc=False, aliases=("option",))
 def _set(ed, args):
     if not args:
-        s = ed.doc.settings if ed.doc else ed.settings
-        ed.info("  ".join(f"{n}={getattr(s, n)}" for n in option_names()))
+        ed.show_settings()
         return
     name, _, value = args.partition(" ")
     targets = [ed.settings]

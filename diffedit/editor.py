@@ -20,6 +20,7 @@ from .document import Document, ReadOnlyError, decode
 from .prompt import Choice, HelpScreen, Picker, PickerItem, Prompt, PromptOption, is_printable
 from .search import compile_query, find, replacement_text
 from .settings import Settings
+from .settings_screen import SettingsScreen
 
 Pos = tuple[int, int]
 
@@ -41,7 +42,7 @@ class Editor:
         self.cutbuffer: str | None = None
         self.last_command: str | None = None
         self.prompt: Prompt | Choice | None = None
-        self.overlay: Picker | HelpScreen | None = None
+        self.overlay: Picker | HelpScreen | SettingsScreen | None = None
         self.message: Message | None = None
         self.highlight_match: tuple[Pos, Pos] | None = None
         self.search_history: list[str] = []
@@ -249,6 +250,9 @@ class Editor:
     def choose(self, question: str, options, on_cancel=None) -> Choice:
         self.prompt = Choice(question, options, on_cancel)
         return self.prompt
+
+    def show_settings(self) -> None:
+        self.overlay = SettingsScreen(self)
 
     def show_help(self) -> None:
         self.overlay = HelpScreen("diffedit help", cmds.help_lines(self))
