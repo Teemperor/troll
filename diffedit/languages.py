@@ -489,6 +489,56 @@ LANGUAGES: list[Language] = [
         indent_after=r"\(\s*$",
     ),
     Language(
+        name="llvm",
+        extensions=(".ll",),
+        regions=(Region("string", r'c?"', r'"', multiline=False),),
+        rules=(
+            ("comment", r";.*"),
+            ("key", r'^\s*(?:[-\w$.]+|"[^"]*"):'),  # basic block labels
+            ("function", r'@(?:[-\w$.]+|"[^"]*")(?=\s*\()'),
+            ("variable", r'[%@](?:[-\w$.]+|"[^"]*")'),
+            ("attr", r'![-\w$.]*'),  # metadata
+            ("decorator", r"#\d+"),  # attribute groups
+            ("type", r"\bi\d+\b|" + kw(*"void half bfloat float double fp128 x86_fp80 ppc_fp128 ptr label "
+                                         "metadata token x86_amx opaque".split())),
+            (
+                "keyword",
+                kw(*"define declare global constant alias ifunc type attributes source_filename target "
+                   "datalayout triple private internal external linkonce linkonce_odr weak weak_odr "
+                   "common appending extern_weak available_externally dso_local dso_preemptable "
+                   "unnamed_addr local_unnamed_addr thread_local align section comdat personality "
+                   "gc prefix prologue addrspace to x "
+                   "ret br switch indirectbr invoke resume unreachable callbr cleanupret catchret "
+                   "catchswitch fneg add fadd sub fsub mul fmul udiv sdiv fdiv urem srem frem shl lshr "
+                   "ashr and or xor extractelement insertelement shufflevector extractvalue "
+                   "insertvalue alloca load store fence cmpxchg atomicrmw getelementptr trunc zext "
+                   "sext fptrunc fpext fptoui fptosi uitofp sitofp ptrtoint inttoptr bitcast "
+                   "addrspacecast icmp fcmp phi select call tail musttail notail freeze va_arg "
+                   "landingpad catchpad cleanuppad cleanup catch filter within unwind "
+                   "nuw nsw exact inbounds disjoint nneg volatile atomic syncscope unordered "
+                   "monotonic acquire release acq_rel seq_cst eq ne ugt uge ult ule sgt sge slt sle "
+                   "oeq ogt oge olt ole one ord ueq une uno fast nnan ninf nsz arcp contract afn "
+                   "reassoc".split()),
+            ),
+            ("constant", kw(*"true false null undef poison zeroinitializer none".split())),
+            (
+                "builtin",
+                kw(*"nounwind noinline alwaysinline optnone optsize minsize readnone readonly writeonly "
+                   "argmemonly noreturn nocapture noalias nonnull dereferenceable "
+                   "dereferenceable_or_null signext zeroext inreg byval byref sret returned nofree "
+                   "nosync willreturn uwtable norecurse speculatable mustprogress memory immarg "
+                   "noundef nest swiftself swifterror allocsize cold hot naked ssp sspstrong sspreq "
+                   "ccc fastcc coldcc tailcc swiftcc cc".split()),
+            ),
+            ("number", r"-?\b(?:0x[KLMHR]?[0-9A-Fa-f]+|\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)\b"),
+            (None, r"[A-Za-z_$.][-\w$.]*"),
+        ),
+        line_comment=";",
+        indent_after=r"\{\s*$",
+        pairs=("()", "[]", "{}", '""'),
+        tab_size=2,
+    ),
+    Language(
         name="gitcommit",
         filenames=("COMMIT_EDITMSG", "MERGE_MSG", "TAG_EDITMSG", "SQUASH_MSG", "git-rebase-todo"),
         rules=(
@@ -511,7 +561,7 @@ ALIASES = {
     "typescript": "javascript", "rs": "rust", "golang": "go", "sh": "shell", "bash": "shell",
     "zsh": "shell", "makefile": "make", "yml": "yaml", "md": "markdown", "patch": "diff",
     "xml": "html", "plain": "text", "none": "text", "txt": "text", "commit": "gitcommit",
-    "kotlin": "java", "csharp": "java", "scss": "css",
+    "kotlin": "java", "csharp": "java", "scss": "css", "ll": "llvm", "llvm-ir": "llvm", "ir": "llvm",
 }
 TEXT = BY_NAME["text"]
 
@@ -536,6 +586,8 @@ def detect(path: str | None, first_line: str = "") -> Language:
         for lang in LANGUAGES:
             if lang.shebang and re.search(lang.shebang, first_line):
                 return lang
+    if first_line.startswith("; ModuleID = "):
+        return BY_NAME["llvm"]
     if first_line.startswith("diff --git") or first_line.startswith("--- "):
         return BY_NAME["diff"]
     return TEXT

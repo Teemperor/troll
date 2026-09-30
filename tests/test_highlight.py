@@ -152,3 +152,17 @@ def test_context_at():
     hc = Highlighter(Buffer("/* open\nstill"), C)
     assert hc.context_at(1, 3) == "comment"
     assert hc.context_at(0, 1) is None  # between '/' and '*'
+
+
+def test_llvm_ir_tokens():
+    ll = languages.detect("foo.ll")
+    assert ll.name == "llvm" and languages.detect(None, "; ModuleID = 'x.c'") is ll
+    toks, _ = tokens(ll, "define i32 @main(ptr noundef %p) #0 {")
+    assert ("define", "keyword") in toks and ("i32", "type") in toks and ("@main", "function") in toks
+    assert ("noundef", "builtin") in toks and ("%p", "variable") in toks and ("#0", "decorator") in toks
+    toks, _ = tokens(ll, '  store ptr @.str, ptr %"a b", align 8, !tbaa !5 ; done')
+    assert ("@.str", "variable") in toks and ('%"a b"', "variable") in toks
+    assert ("!tbaa", "attr") in toks and ("8", "number") in toks and ("; done", "comment") in toks
+    toks, _ = tokens(ll, '@s = constant [4 x i8] c"a;b\\00"')
+    assert ('c"a;b\\00"', "string") in toks
+    assert tokens(ll, "if.then:")[0] == [("if.then:", "key")]

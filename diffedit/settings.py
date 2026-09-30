@@ -23,7 +23,7 @@ class Settings:
     case_sensitive: bool = False
     regex_search: bool = False
     fold_context: int = 3
-    side_by_side: bool = False
+    side_by_side: bool = True
     soft_wrap: bool = False
     hard_wrap: bool = False
     cursor_line: bool = False

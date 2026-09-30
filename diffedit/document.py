@@ -570,6 +570,15 @@ class Document:
             self._replace_rows(r1, r2, new, keep_selection=self.selection() is not None)
         return True
 
+    def comment_out_rows(self, first: int, last: int, marker: str) -> bool:
+        """Comment out rows first..last with `marker`; False if they already are."""
+        old = self.lines[first : last + 1]
+        if all(line.lstrip().startswith(marker) for line in old if line.strip()):
+            return False
+        with self.edit():
+            self._replace_rows(first, last, af.comment_out(old, marker), keep_selection=False)
+        return True
+
     def justify(self, whole: bool = False) -> bool:
         """Reflow the paragraph at the cursor, the selection, or everything."""
         width = self.settings.fill_width

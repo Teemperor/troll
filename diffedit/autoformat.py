@@ -340,6 +340,15 @@ def toggle_comment(lines: list[str], lang: Language) -> list[str] | None:
     return [line[:col] + marker + " " + line[col:] if line.strip() else line for line in lines]
 
 
+def comment_out(lines: list[str], marker: str) -> list[str]:
+    """Prefix every non-blank line with `marker`, aligned at the smallest indentation."""
+    nonblank = [line for line in lines if line.strip()]
+    if not nonblank:
+        return list(lines)
+    col = min(len(leading_ws(line)) for line in nonblank)
+    return [line[:col] + marker + " " + line[col:] if line.strip() else line for line in lines]
+
+
 # ------------------------------------------------------------------ justify
 
 

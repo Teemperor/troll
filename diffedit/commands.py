@@ -833,6 +833,12 @@ def _revert_hunk(ed, args):
     ed.revert_hunk()
 
 
+@command("comment-hunk", "Comment out the commit's change at the cursor (# in Python, // in C/C++, ...)",
+         category="Commit", aliases=("comment-change",), commit_only=True)
+def _comment_hunk(ed, args):
+    ed.comment_hunk()
+
+
 @command("revert-file", "Discard all your edits to this file", category="Commit", commit_only=True)
 def _revert_file(ed, args):
     doc = ed.doc
@@ -860,8 +866,10 @@ EDITING A COMMIT
   You get a list of the files the commit touched plus its message. Open one with Enter:
   it shows the file as of that commit, with the commit's diff overlaid - added lines
   are green (+), removed lines are shown in red (-) and can't be edited. Unchanged
-  code is folded away (M-Z toggles); `side-by-side` shows the old version in a right-hand column. Just edit the text; lines you changed are
-  marked with a yellow *. M-Down/M-Up jump between changes, ^X goes back to the list.
+  code is folded away (M-Z toggles). The version before the commit is shown in a
+  right-hand column (`side-by-side` switches to a unified view and back). Just edit
+  the text; lines you changed are marked with a yellow *. `comment-hunk` comments out
+  the change under the cursor. M-Down/M-Up jump between changes, ^X goes back to the list.
   ^S rewrites the commit (later commits are replayed on top automatically; nothing
   is changed if that would conflict). Undo a rewrite with `git reset --keep ORIG_HEAD`.
 

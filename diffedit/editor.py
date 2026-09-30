@@ -907,6 +907,28 @@ class Editor:
         else:
             self.info("You haven't changed anything here")
 
+    def comment_hunk(self) -> None:
+        """Comment out the lines of the commit's change under the cursor."""
+        doc = self.doc
+        if doc.diff is None:
+            self.error("Commenting out a change is available when editing a commit")
+            return
+        r = doc.cursor[0]
+        d = doc.diff.get(doc.buffer)
+        hunk = next(((s, e) for s, e in d.hunks if s <= r < e), None)
+        if hunk is None:
+            if d.hunk_at(r) is not None:
+                self.info("This change only removes lines: nothing to comment out")
+            else:
+                self.info("The commit doesn't change anything here")
+            return
+        s, e = hunk
+        marker = doc.lang.line_comment or "//"
+        if doc.comment_out_rows(s, e - 1, marker):
+            self.info(f"Commented out {e - s} line{'s' if e - s != 1 else ''}")
+        else:
+            self.info("This change is already commented out")
+
     def revert_hunk(self) -> None:
         """Drop the commit's change under the cursor (restore the pre-commit text)."""
         doc = self.doc

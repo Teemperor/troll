@@ -16,8 +16,8 @@ def make_history(repo):
     return target
 
 
-def open_editor(repo, rev) -> Editor:
-    ed = Editor(Settings(), cwd=repo.path, raise_errors=True)
+def open_editor(repo, rev, **settings) -> Editor:
+    ed = Editor(Settings(**settings), cwd=repo.path, raise_errors=True)
     ed.open_commit(rev)
     return ed
 
@@ -270,9 +270,16 @@ def test_non_editable_entries(repo):
     assert ed.in_overview and "can't be edited (binary)" in ed.message.text
 
 
-def test_side_by_side_view(repo):
+def test_side_by_side_is_the_default(repo):
     target = make_history(repo)
     ed = open_editor(repo, target)
+    ed.open_entry(2)
+    assert "before this commit" in build_frame(ed, 40, 120).text().split("\n")[1]
+
+
+def test_side_by_side_view(repo):
+    target = make_history(repo)
+    ed = open_editor(repo, target, side_by_side=False)
     ed.open_entry(2)
     ed.run_line("side-by-side")
     assert all(e.doc.settings.side_by_side for e in ed.commit.entries if e.doc)  # every file of the commit
@@ -301,7 +308,7 @@ def test_side_by_side_view(repo):
 
 def test_side_by_side_from_settings_panel(repo):
     target = make_history(repo)
-    ed = open_editor(repo, target)
+    ed = open_editor(repo, target, side_by_side=False)
     ed.open_entry(1)
     ed.run_line("settings")
     panel = ed.overlay
@@ -309,3 +316,39 @@ def test_side_by_side_from_settings_panel(repo):
     ed.keys("Enter", "Esc")
     assert all(e.doc.settings.side_by_side for e in ed.commit.entries if e.doc)
     assert ed.settings.side_by_side
+
+
+def test_comment_hunk_uses_the_languages_comment_marker(repo):
+    target = make_history(repo)
+    ed = open_editor(repo, target)
+    ed.open_entry(2)  # src/app.py: Python
+    doc = ed.doc
+    row = doc.lines.index("# Thsi helper is teh best")
+    doc.goto(row, 0)
+    run_palette(ed, "comment-hunk")
+    assert "already commented out" in ed.message.text
+    doc.goto(doc.lines.index("line 6"), 0)  # the removed "line 5" is before it
+    run_palette(ed, "comment-hunk")
+    assert "only removes lines" in ed.message.text
+    doc.goto(0, 0)
+    run_palette(ed, "comment-hunk")
+    assert "doesn't change anything" in ed.message.text
+
+
+def test_comment_hunk_cpp_and_python(repo):
+    repo.commit("base", {"a.cpp": "int a;\nint b;\n", "b.py": "x = 1\n"})
+    target = repo.commit("add", {"a.cpp": "int a;\n  foo();\n\n  bar();\nint b;\n", "b.py": "x = 1\nif x:\n    y = 2\n"})
+    ed = open_editor(repo, target)
+    ed.open_entry([e.label for e in ed.commit.entries].index("a.cpp"))
+    doc = ed.doc
+    doc.goto(2, 0)
+    run_palette(ed, "comment-hunk")
+    assert doc.lines[:5] == ["int a;", "  // foo();", "", "  // bar();", "int b;"]
+    assert "Commented out 3 lines" in ed.message.text
+    ed.keys("M-u")
+    assert doc.lines[1] == "  foo();"
+    ed.open_entry([e.label for e in ed.commit.entries].index("b.py"))
+    doc = ed.doc
+    doc.goto(2, 0)
+    run_palette(ed, "comment-hunk")
+    assert doc.lines[:3] == ["x = 1", "# if x:", "#     y = 2"]
