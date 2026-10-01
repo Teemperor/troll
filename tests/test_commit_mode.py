@@ -1,5 +1,8 @@
 """End-to-end tests of the commit editor, driven by key presses like a user."""
 
+import threading
+
+from diffedit import gitcommit
 from diffedit.editor import Editor
 from diffedit.prompt import Choice, Picker
 from diffedit.settings import Settings
@@ -78,6 +81,47 @@ def test_next_change_from_the_message_jumps_to_the_first_change(repo):
     assert ed.commit.current == 0  # back to the message
     ed.keys("M-Up")
     assert ed.commit.current == 2 and ed.doc.lines[ed.doc.cursor[0]] == "# Thsi helper is teh best"
+
+
+def test_rewrite_runs_in_the_background_with_a_spinner(repo, monkeypatch):
+    target = make_history(repo)
+    ed = open_editor(repo, target)
+    ed.open_entry(2)
+    ed.run_line("s/Thsi/This/")
+    release = threading.Event()
+    real = gitcommit.rewrite_commit
+
+    def slow_rewrite(*args):
+        release.wait(10)
+        return real(*args)
+
+    monkeypatch.setattr(gitcommit, "rewrite_commit", slow_rewrite)
+    ed.keys("C-s")
+    ed.handle_key("y")  # handle_key doesn't wait for the task, unlike keys()
+    assert ed.task is not None and not ed.poll_task()
+    frame = build_frame(ed, 30, 100)
+    assert "Rewriting commit" in frame.text() and frame.cursor is None
+    ed.handle_key("x")  # input is ignored while git works
+    assert "# Thsi helper" not in ed.doc.text() and "x" not in ed.doc.lines[ed.doc.cursor[0]]
+    release.set()
+    assert ed.poll_task(wait=True) and ed.task is None
+    assert "Rewrote" in ed.message.text and not ed.commit.dirty
+    assert "# This helper is teh best" in repo.show("HEAD~1", "src/app.py")
+
+
+def test_failed_background_rewrite_is_reported(repo, monkeypatch):
+    target = make_history(repo)
+    ed = open_editor(repo, target)
+    ed.open_entry(2)
+    ed.run_line("s/Thsi/This/")
+
+    def failing_rewrite(*args):
+        raise gitcommit.GitError("merge conflict in src/app.py")
+
+    monkeypatch.setattr(gitcommit, "rewrite_commit", failing_rewrite)
+    ed.keys("C-s", "y")
+    assert ed.task is None and ed.message.kind == "error" and "merge conflict" in ed.message.text
+    assert ed.commit.dirty  # nothing was adopted
 
 
 def test_ghost_lines_and_folding_in_frame(repo):

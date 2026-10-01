@@ -149,7 +149,10 @@ class CommitSession:
 
     def apply(self) -> gitcommit.RewriteResult:
         files, message = self.collect()
-        result = gitcommit.rewrite_commit(self.repo, self.commit.sha, files, message)
+        return self.finish(gitcommit.rewrite_commit(self.repo, self.commit.sha, files, message))
+
+    def finish(self, result: gitcommit.RewriteResult) -> gitcommit.RewriteResult:
+        """Adopt a successful rewrite: the edited texts become the new originals."""
         self.commit = gitcommit.read_commit(self.repo, result.new_sha)
         for e in self.entries:
             if e.doc is not None:

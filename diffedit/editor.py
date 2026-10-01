@@ -10,6 +10,8 @@ from __future__ import annotations
 import os
 import re
 import subprocess
+import threading
+from collections.abc import Callable
 from dataclasses import dataclass
 
 from . import commands as cmds
@@ -32,6 +34,17 @@ Pos = tuple[int, int]
 class Message:
     text: str
     kind: str = "info"  # "info" | "error"
+
+
+@dataclass
+class Task:
+    """Work running in a background thread (e.g. git rewriting a commit). Input is
+    ignored until it's done; the status bar shows `label` with a spinner."""
+    label: str
+    thread: threading.Thread
+    done: Callable[[object], None]  # called with the result, on the main thread
+    result: object = None
+    error: BaseException | None = None
 
 
 class Editor:
@@ -62,6 +75,7 @@ class Editor:
         self.definition: defs.DefinitionPanel | None = None  # the show-definition panel on the right
         self.panel_x: int | None = None  # screen column where that panel starts (set by build_frame)
         self.jump_stack: list[tuple[Document, tuple[int, int]]] = []  # for jump-back
+        self.task: Task | None = None
         self._pasting = False
         self._paste: list[str] = []
         self.keymap = cmds.build_keymap()
@@ -164,8 +178,8 @@ class Editor:
 
     # ------------------------------------------------------------ key input
     def handle_key(self, key: str) -> None:
-        if key == "Resize":
-            return
+        if key == "Resize" or self.task is not None:
+            return  # nothing happens while a task runs
         if key == "PasteStart":
             self._pasting = True
             self._paste = []
@@ -182,8 +196,12 @@ class Editor:
             return
         self.message = None if self.prompt is None else self.message
         self.highlight_match = None if self.prompt is None else self.highlight_match
+        self._guarded(self._dispatch, key)
+
+    def _guarded(self, fn, *args) -> None:
+        """Run `fn`, turning errors into status messages."""
         try:
-            self._dispatch(key)
+            fn(*args)
         except ReadOnlyError as e:
             self.error(str(e))
         except (OSError, ValueError, gitcommit.GitError) as e:
@@ -194,9 +212,42 @@ class Editor:
             self.error(f"Internal error: {type(e).__name__}: {e}")
 
     def keys(self, *keys: str) -> None:
-        """Feed key names (handy for tests and macros)."""
+        """Feed key names (handy for tests and macros). Waits for tasks they start."""
         for k in keys:
             self.handle_key(k)
+            self.poll_task(wait=True)
+
+    # ----------------------------------------------------------------- tasks
+    def run_task(self, label: str, work: Callable[[], object], done: Callable[[object], None]) -> None:
+        """Run `work` in a background thread, then `done(result)` from `poll_task`.
+        An exception in `work` is reported like one from a key press."""
+        def target():
+            try:
+                task.result = work()
+            except BaseException as e:  # re-raised on the main thread
+                task.error = e
+
+        task = Task(label, threading.Thread(target=target, name=label), done)
+        self.task = task
+        task.thread.start()
+
+    def poll_task(self, wait: bool = False) -> bool:
+        """Finish the running task if it's done (or wait for it). True if it finished."""
+        task = self.task
+        if task is None:
+            return False
+        task.thread.join(None if wait else 0)
+        if task.thread.is_alive():
+            return False
+        self.task = None
+
+        def finish():
+            if task.error is not None:
+                raise task.error
+            task.done(task.result)
+
+        self._guarded(finish)
+        return True
 
     def type(self, text: str) -> None:
         """Type text character by character (newlines press Enter)."""
@@ -837,7 +888,15 @@ class Editor:
         extra = f" and replay {later} later commit{'s' if later != 1 else ''}" if later else ""
 
         def yes():
-            result = s.apply()
+            files, message = s.collect()
+            self.run_task(
+                f"Rewriting commit {s.commit.short}",
+                lambda: gitcommit.rewrite_commit(s.repo, s.commit.sha, files, message),
+                done,
+            )
+
+        def done(result):
+            s.finish(result)
             if result.new_sha == result.old_sha:
                 self.info("Nothing changed")
             else:

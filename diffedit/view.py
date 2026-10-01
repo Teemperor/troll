@@ -854,6 +854,9 @@ def title_row(ed, width: int) -> list[Seg]:
     return rb.row()
 
 
+SPINNER = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
+
+
 def status_row(ed, width: int) -> tuple[list[Seg], int | None]:
     rb = RowBuilder(width)
     p = ed.prompt
@@ -875,6 +878,15 @@ def status_row(ed, width: int) -> tuple[list[Seg], int | None]:
         rb.add("Cancel", "prompt", "prompt")
         rb.pad("prompt", "prompt")
         return rb.row(), min(width - 1, _w(p.label) + 1)
+    if ed.task is not None:
+        spinner = SPINNER[int(time.monotonic() * 10) % len(SPINNER)]
+        text = f"{spinner} {ed.task.label}..."
+        if _w(text) > width:
+            text = fit(text, width)
+        rb.add(" " * max(0, (width - _w(text)) // 2), "text", None)
+        rb.add(text, "status.info", None)
+        rb.pad("text", None)
+        return rb.row(), None
     if ed.message is not None:
         text = f"[ {ed.message.text} ]"
         if _w(text) > width:
@@ -1009,6 +1021,8 @@ def build_frame(ed, height: int, width: int) -> Frame:
         cursor = cursor if status_x is not None else None
     if settings_cursor is not None:
         cursor = (settings_cursor[0] + 1, settings_cursor[1])
+    if ed.task is not None:
+        cursor = None
     if ed.settings.help_lines and height >= 8:
         rows.extend(help_bar_rows(help_items(ed), width))
     rows = rows[:height]
