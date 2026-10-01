@@ -41,6 +41,7 @@ class Language:
     first_line_limit: int = 0  # characters beyond this on the first line are flagged
     list_continuation: bool = False
     fenced_code: bool = False  # ```lang blocks are highlighted as that language
+    fence_default: str = ""  # language of ``` blocks without a label ("" = plain code)
     comment_prefixes: tuple[str, ...] = field(default=())
 
     def all_comment_prefixes(self) -> tuple[str, ...]:
@@ -562,6 +563,7 @@ LANGUAGES: list[Language] = [
         first_line_limit=72,
         list_continuation=True,
         fenced_code=True,
+        fence_default="cpp",
     ),
     Language(name="text", extensions=(".txt", ".text", ".log"), pairs=("()", "[]", "{}"), list_continuation=True),
 ]

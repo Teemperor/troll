@@ -184,8 +184,8 @@ def test_fenced_code_is_highlighted_in_its_language():
     assert spans_of(doc, 13) == []  # a ``` line doesn't close a ~~~ block: it's just c++ text
     assert ("still", "code") not in spans_of(doc, 14)
     assert spans_of(doc, 15) == [("~~~", "code")]
-    assert spans_of(doc, 18) == [("plain block", "code")]  # no language: plain code style
-    assert spans_of(doc, 19) == [("```", "code")]  # too short to close a ```` fence: content
+    assert ("plain block", "code") not in spans_of(doc, 18)  # no language: C++, not plain code
+    assert spans_of(doc, 19) == []  # too short to close a ```` fence: C++ content
     assert spans_of(doc, 20) == [("````", "code")]
     assert spans_of(doc, 21) == [("Signed-off-by:", "key")]  # back to message highlighting
 
@@ -193,6 +193,12 @@ def test_fenced_code_is_highlighted_in_its_language():
 def test_unknown_language_is_plain_code():
     doc = message_doc("Subject\n\n```nosuchlang\nif x:\n```\n")
     assert spans_of(doc, 3) == [("if x:", "code")]
+
+
+def test_fence_without_a_language_is_cpp():
+    doc = message_doc("Subject\n\n```\nint x = 0; // c\n```\n")
+    assert spans_of(doc, 2) == [("```", "code")]
+    assert ("int", "type") in spans_of(doc, 3) and ("// c", "comment") in spans_of(doc, 3)
 
 
 def test_typing_a_fence_rehighlights_the_lines_below():

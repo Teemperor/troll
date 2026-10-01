@@ -874,12 +874,14 @@ class Editor:
 
     def next_change(self, delta: int) -> None:
         doc = self.doc
-        if doc.diff is None:
+        if doc.diff is None and self.commit is None:
             self.error("Change navigation is available when editing a commit")
             return
-        d = doc.diff.get(doc.buffer)
+        starts = []  # the message has no changes of its own: go straight to the next file
+        if doc.diff is not None:
+            d = doc.diff.get(doc.buffer)
+            starts = [min(s, len(doc.lines) - 1) for s, _e in d.hunks]
         r = doc.cursor[0]
-        starts = [min(s, len(doc.lines) - 1) for s, _e in d.hunks]
         if delta > 0:
             later = [s for s in starts if s > r]
             target = later[0] if later else None
@@ -894,7 +896,7 @@ class Editor:
                     self._jump_to_last_change()
                 self.info(f"Now in {self.commit.entry.label}")
                 return
-            self.info("No more changes" if starts else "This file has no changes")
+            self.info("No more changes" if starts or doc.diff is None else "This file has no changes")
             return
         doc.goto(target, 0)
         self.info(f"Change {starts.index(target) + 1}/{len(starts)}")

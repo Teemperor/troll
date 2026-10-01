@@ -68,6 +68,18 @@ def test_edit_comment_and_rewrite_through_keys(repo):
     assert ed.quit_requested
 
 
+def test_next_change_from_the_message_jumps_to_the_first_change(repo):
+    target = make_history(repo)
+    ed = open_editor(repo, target)
+    ed.open_entry(0)
+    ed.keys("M-Down")
+    assert ed.commit.current == 1 and ed.doc.cursor == (0, 0)  # docs.txt: added from line 0
+    ed.keys("M-Up")
+    assert ed.commit.current == 0  # back to the message
+    ed.keys("M-Up")
+    assert ed.commit.current == 2 and ed.doc.lines[ed.doc.cursor[0]] == "# Thsi helper is teh best"
+
+
 def test_ghost_lines_and_folding_in_frame(repo):
     target = make_history(repo)
     ed = open_editor(repo, target)

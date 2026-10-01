@@ -74,7 +74,8 @@ class Tokenizer:
             spans = [(m.start(2), m.end(2), "code")]
             if m.group(3):
                 spans.append((m.start(3), m.end(3), "label"))
-            lang = get_language(m.group(3)) if m.group(3) else None
+            label = m.group(3) or self.lang.fence_default
+            lang = get_language(label) if label else None
             return spans, (m.group(2), lang.name if lang else "", None)
         fence, name, inner = state
         m = _FENCE_CLOSE.match(text)

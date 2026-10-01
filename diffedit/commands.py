@@ -922,8 +922,8 @@ COMMIT MESSAGES
   In the commit message (and in COMMIT_EDITMSG from git) lines are 72 columns: ^J and
   typing wrap the body there, a longer subject is flagged and a guide stripe marks the
   limit. The subject, trailers (Signed-off-by: ...) and '#' lines are never rewrapped.
-  Code in ```lang fences is highlighted as that language (```python, ```c++, ```ll, ...)
-  and never rewrapped either.
+  Code in ```lang fences is highlighted as that language (```python, ```c++, ```ll, ...;
+  a fence without a language is C++) and never rewrapped either.
   Change it with `set msgwidth 72`, `set msgguide 73` (0 = off), `set msgwrap off`.
 
 DEFINITIONS (LLVM IR, Python, C/C++)
