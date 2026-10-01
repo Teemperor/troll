@@ -40,6 +40,7 @@ class Language:
     first_line_token: str | None = None
     first_line_limit: int = 0  # characters beyond this on the first line are flagged
     list_continuation: bool = False
+    fenced_code: bool = False  # ```lang blocks are highlighted as that language
     comment_prefixes: tuple[str, ...] = field(default=())
 
     def all_comment_prefixes(self) -> tuple[str, ...]:
@@ -116,6 +117,10 @@ PREPROC = (
     ("preproc", r"^\s*#\s*\w+"),
     ("keyword", r"@\w+"),  # Objective-C
 )
+
+# Markdown-style fenced code blocks: ```lang ... ``` (or ~~~).
+FENCE_OPEN = r"^(\s*)(`{3,}|~{3,})\s*([^\s`]*)[^`]*$"
+FENCE_CLOSE = r"^\s*(`{3,}|~{3,})\s*$"
 
 # Commit messages: trailer lines ("Signed-off-by: ...") and git's scissors line,
 # below which `git commit -v` puts the diff.
@@ -556,6 +561,7 @@ LANGUAGES: list[Language] = [
         first_line_token="heading",
         first_line_limit=72,
         list_continuation=True,
+        fenced_code=True,
     ),
     Language(name="text", extensions=(".txt", ".text", ".log"), pairs=("()", "[]", "{}"), list_continuation=True),
 ]

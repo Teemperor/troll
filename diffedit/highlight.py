@@ -12,7 +12,11 @@ from __future__ import annotations
 import re
 from collections import OrderedDict
 
-from .languages import Language
+from .languages import FENCE_CLOSE, FENCE_OPEN, Language
+from .languages import get as get_language
+
+_FENCE_OPEN = re.compile(FENCE_OPEN)
+_FENCE_CLOSE = re.compile(FENCE_CLOSE)
 
 Span = tuple[int, int, str]  # start, end, token
 
@@ -34,6 +38,7 @@ class Tokenizer:
             self._kinds[name] = ("rule", i)
         self._master = re.compile("|".join(parts)) if parts else None
         self.open_token: str | None = None  # region left open by the last tokenize()
+        self._inner: dict[str, Tokenizer | None] = {}  # tokenizers for fenced code blocks
         self._ends = []
         for region in lang.regions:
             if region.escape:
@@ -51,7 +56,42 @@ class Tokenizer:
                 return m.end()
             pos = max(m.end(), pos + 1)
 
-    def tokenize(self, text: str, state: int | None = None) -> tuple[list[Span], int | None]:
+    def tokenize(self, text: str, state=None) -> tuple[list[Span], object]:
+        """Spans of `text` and the state at its end: None, the index of an open
+        region, or (fence, language name, inner state) inside a fenced code block."""
+        if self.lang.fenced_code and (state is None or isinstance(state, tuple)):
+            fenced = self._fenced(text, state)
+            if fenced is not None:
+                return fenced
+        return self._tokenize(text, state)
+
+    def _fenced(self, text: str, state):
+        if state is None:
+            m = _FENCE_OPEN.match(text)
+            if m is None:
+                return None
+            self.open_token = None
+            spans = [(m.start(2), m.end(2), "code")]
+            if m.group(3):
+                spans.append((m.start(3), m.end(3), "label"))
+            lang = get_language(m.group(3)) if m.group(3) else None
+            return spans, (m.group(2), lang.name if lang else "", None)
+        fence, name, inner = state
+        m = _FENCE_CLOSE.match(text)
+        self.open_token = None
+        if m and m.group(1)[0] == fence[0] and len(m.group(1)) >= len(fence):
+            return [(m.start(1), m.end(1), "code")], None
+        if name not in self._inner:
+            lang = get_language(name) if name else None
+            self._inner[name] = Tokenizer(lang) if lang is not None and lang is not self.lang else None
+        tok = self._inner[name]
+        if tok is None:
+            return ([(0, len(text), "code")] if text else []), state
+        spans, end = tok.tokenize(text, inner)
+        self.open_token = tok.open_token
+        return spans, (fence, name, end)
+
+    def _tokenize(self, text: str, state: int | None) -> tuple[list[Span], int | None]:
         spans: list[Span] = []
         pos = 0
         self.open_token = None

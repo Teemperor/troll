@@ -138,3 +138,89 @@ def test_message_settings_reach_the_commit_message_from_a_file(repo):
     ed.type("word " * 30)
     body = [line for line in doc.lines[1:] if line.strip()]
     assert len(body) > 1 and all(len(line.rstrip()) <= 60 for line in body)
+
+
+# ------------------------------------------------------------ fenced code blocks
+
+FENCED = '''\
+Subject
+
+Text with `inline` code:
+
+```python
+def f(x):
+    """A docstring
+    over two lines"""
+    return x + 1  # note
+```
+
+~~~c++
+int main() { return 0; }
+```
+still c++: a ``` fence doesn't close a ~~~ block
+~~~
+
+````
+plain block
+```
+````
+Signed-off-by: A <a@b.c>
+'''
+
+
+def spans_of(doc, row):
+    line = doc.lines[row]
+    return [(line[a:b], t) for a, b, t in doc.highlighter.spans(row)]
+
+
+def test_fenced_code_is_highlighted_in_its_language():
+    doc = message_doc(FENCED)
+    assert spans_of(doc, 4) == [("```", "code"), ("python", "label")]
+    assert ("def", "keyword") in spans_of(doc, 5) and ("f", "function") in spans_of(doc, 5)
+    assert spans_of(doc, 7) == [('    over two lines"""', "string")]  # multi-line state carries over
+    assert ("# note", "comment") in spans_of(doc, 8)  # a Python comment, not a git '#' line
+    assert spans_of(doc, 9) == [("```", "code")]
+    assert ("int", "type") in spans_of(doc, 12)  # c++ via the language aliases
+    assert spans_of(doc, 13) == []  # a ``` line doesn't close a ~~~ block: it's just c++ text
+    assert ("still", "code") not in spans_of(doc, 14)
+    assert spans_of(doc, 15) == [("~~~", "code")]
+    assert spans_of(doc, 18) == [("plain block", "code")]  # no language: plain code style
+    assert spans_of(doc, 19) == [("```", "code")]  # too short to close a ```` fence: content
+    assert spans_of(doc, 20) == [("````", "code")]
+    assert spans_of(doc, 21) == [("Signed-off-by:", "key")]  # back to message highlighting
+
+
+def test_unknown_language_is_plain_code():
+    doc = message_doc("Subject\n\n```nosuchlang\nif x:\n```\n")
+    assert spans_of(doc, 3) == [("if x:", "code")]
+
+
+def test_typing_a_fence_rehighlights_the_lines_below():
+    doc = message_doc("Subject\n\ndef f(): pass\n")
+    assert ("def", "keyword") not in spans_of(doc, 2)
+    doc.set_cursor((1, 0))
+    for ch in "```py":
+        doc.type_char(ch)
+    assert ("def", "keyword") in spans_of(doc, 2)
+
+
+def test_fenced_code_in_the_frame(editor):
+    editor_with(editor, FENCED, path="COMMIT_EDITMSG")
+    frame = build_frame(editor, 30, 100)
+    row = frame.rows[1 + 5]  # title bar, then line 6: def f(x):
+    assert ("def", "keyword", None) in row or any(t.startswith("def") and fg == "keyword" for t, fg, _bg in row)
+
+
+def test_code_blocks_are_not_reflowed_or_wrapped():
+    long_code = "x = [a_long_name_here, another_long_name_here, yet_another_long_name, and_one_more]"
+    text = f"Subject\n\nSome prose that is long enough to be reflowed when justified at seventy two.\n```py\n{long_code}\ny = 2\n```\nMore prose.\n"
+    doc = message_doc(text)
+    doc.justify(whole=True)
+    assert doc.lines[4:8] == ["```py", long_code, "y = 2", "```"]
+    assert doc.lines[2].endswith("seventy") and doc.lines[3] == "two."
+    doc.set_cursor((5, 0))
+    assert not doc.justify()  # ^J inside a code block does nothing
+    doc.set_cursor((6, len(doc.lines[6])))
+    for ch in " + some more words to make this line longer than seventy two columns":
+        doc.type_char(ch)
+    assert len(doc.lines[6]) > 72 and doc.lines[7] == "```"  # no hard wrap in code

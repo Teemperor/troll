@@ -9,7 +9,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
-from .languages import SCISSORS, TRAILER, Language
+from .languages import FENCE_CLOSE, FENCE_OPEN, SCISSORS, TRAILER, Language
 from .settings import Settings
 from .textutil import BRACKET_PAIRS, CLOSERS, OPENERS, display_width, find_matching_bracket, leading_ws
 
@@ -373,8 +373,28 @@ def _breaks(p: Prefix, lang: Language) -> bool:
         return True
     if lang.name == "gitcommit":
         text = p.first + body
-        return text.startswith("#") or re.match(TRAILER, text) is not None
+        return text.startswith(("#", "```", "~~~")) or re.match(TRAILER, text) is not None
     return lang.name == "markdown" and body.startswith(("```", "#", "|"))
+
+
+def in_code_block(lines: list[str], row: int) -> bool:
+    """Whether `row` is a ``` fence line or inside a fenced code block."""
+    fence = None
+    for r in range(row + 1):
+        line = lines[r]
+        if fence is None:
+            m = re.match(FENCE_OPEN, line)
+            if m:
+                fence = m.group(2)
+                if r == row:
+                    return True
+        else:
+            m = re.match(FENCE_CLOSE, line)
+            if r == row:
+                return True
+            if m and m.group(1)[0] == fence[0] and len(m.group(1)) >= len(fence):
+                fence = None
+    return False
 
 
 def message_end(lines: list[str]) -> int:
@@ -388,9 +408,9 @@ def message_end(lines: list[str]) -> int:
 
 def is_message_prose(lines: list[str], row: int) -> bool:
     """Whether `row` of a commit message may be wrapped: not the subject,
-    a '#' comment, a trailer or below the scissors line."""
+    a '#' comment, a trailer, code in a ``` block or below the scissors line."""
     line = lines[row]
-    if row == 0 or line.startswith("#") or re.match(TRAILER, line):
+    if row == 0 or line.startswith("#") or re.match(TRAILER, line) or in_code_block(lines, row):
         return False
     return row <= message_end(lines[: row + 1])
 
@@ -403,7 +423,7 @@ def find_paragraph(lines: list[str], row: int, lang: Language, lo: int = 0, hi: 
     """Rows [first, last] of the paragraph containing `row`, or None."""
     hi = len(lines) - 1 if hi is None else hi
     if lang.name == "gitcommit":  # the subject line stands alone; nothing below the scissors counts
-        if row == 0 or row > message_end(lines[: row + 1]):
+        if row == 0 or row > message_end(lines[: row + 1]) or in_code_block(lines, row):
             return None
         lo = max(lo, 1)
     p = line_prefix(lines[row], lang)
