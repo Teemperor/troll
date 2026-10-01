@@ -801,7 +801,7 @@ def _jump_back(ed, args):
 
 
 @command("commit", "Edit a commit's changes: 'commit HEAD~2' (no argument: pick from the log)", args="[REV]",
-         needs_doc=False, overview=True, aliases=("edit-commit", "diffedit", "rev"), category="Commit")
+         needs_doc=False, overview=True, aliases=("edit-commit", "troll", "rev"), category="Commit")
 def _commit(ed, args):
     if ed.commit is not None and ed.commit.dirty:
         ed.error("Apply (^S) or discard (^X, N) the current commit edits first")
@@ -899,7 +899,7 @@ def _revert_file(ed, args):
 # ======================================================================
 
 INTRO = """\
-diffedit is a nano-compatible editor. ^ means Ctrl, M- means Alt (or Esc then the key).
+troll is a nano-compatible editor. ^ means Ctrl, M- means Alt (or Esc then the key).
 Press ^T (or M-X) to open the command palette: type to filter, Enter to run.
 You can also type full commands there, for example:
 
@@ -907,7 +907,7 @@ You can also type full commands there, for example:
     s/foo/bar/g       !sort               /needle            justify 72
 
 EDITING A COMMIT
-  Start with `diffedit --commit REV` (or `git diffedit REV`, or the `commit` command).
+  Start with `troll --commit REV` (or `git troll REV`, or the `commit` command).
   You get a list of the files the commit touched plus its message. Open one with Enter:
   it shows the file as of that commit, with the commit's diff overlaid - added lines
   are green (+), removed lines are shown in red (-) and can't be edited. Unchanged
@@ -940,7 +940,7 @@ SMART FORMATTING
 
 SETTINGS
   `settings` opens a panel with every option (S there saves them as your defaults).
-  Defaults are read from ~/.config/diffedit/config at startup; `edit-settings` opens it.
+  Defaults are read from ~/.config/troll/config at startup; `edit-settings` opens it.
   One option per line, nanorc style: `set softwrap`, `unset linenumbers`, `set tabsize 2`.
 """
 

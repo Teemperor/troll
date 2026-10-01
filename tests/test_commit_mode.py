@@ -2,11 +2,11 @@
 
 import threading
 
-from diffedit import gitcommit
-from diffedit.editor import Editor
-from diffedit.prompt import Choice, Picker
-from diffedit.settings import Settings
-from diffedit.view import build_frame
+from troll import gitcommit
+from troll.editor import Editor
+from troll.prompt import Choice, Picker
+from troll.settings import Settings
+from troll.view import build_frame
 
 BASE = "".join(f"line {i}\n" for i in range(40))
 

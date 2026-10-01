@@ -1,8 +1,8 @@
 import pytest
 
-from diffedit.settings import OPTIONS, Settings, option_names, set_option
-from diffedit.settings_screen import SettingsScreen
-from diffedit.view import build_frame
+from troll.settings import OPTIONS, Settings, option_names, set_option
+from troll.settings_screen import SettingsScreen
+from troll.view import build_frame
 
 from conftest import editor_with
 

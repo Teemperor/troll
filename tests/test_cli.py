@@ -1,6 +1,6 @@
 import pytest
 
-from diffedit import cli
+from troll import cli
 
 
 def test_split_positions():
@@ -42,4 +42,4 @@ def test_main_reports_git_errors(tmp_path, capsys, git_env):
 def test_version(capsys):
     with pytest.raises(SystemExit):
         cli.main(["--version"])
-    assert "diffedit" in capsys.readouterr().out
+    assert "troll" in capsys.readouterr().out

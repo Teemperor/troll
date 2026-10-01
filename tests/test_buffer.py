@@ -1,4 +1,4 @@
-from diffedit.buffer import Buffer
+from troll.buffer import Buffer
 
 
 def test_insert_and_delete_single_line():

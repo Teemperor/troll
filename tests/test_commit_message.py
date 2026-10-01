@@ -2,10 +2,10 @@
 
 from conftest import editor_with, make_doc
 
-from diffedit import autoformat as af
-from diffedit.editor import Editor
-from diffedit.settings import Settings
-from diffedit.view import build_frame, gutter_width
+from troll import autoformat as af
+from troll.editor import Editor
+from troll.settings import Settings
+from troll.view import build_frame, gutter_width
 
 MSG = """\
 Fix the frobnicator so that it no longer crashes when it is given an empty list of widgets

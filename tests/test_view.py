@@ -1,5 +1,5 @@
-from diffedit.prompt import Picker
-from diffedit.view import build_frame, fit, help_bar_rows
+from troll.prompt import Picker
+from troll.view import build_frame, fit, help_bar_rows
 
 from conftest import editor_with
 
@@ -17,7 +17,7 @@ def test_frame_layout_and_cursor(editor):
     f = build_frame(editor, 12, 60)
     lines = f.text().split("\n")
     assert len(lines) == 12 and f.width == 60
-    assert "diffedit" in lines[0] and "t.py" in lines[0]
+    assert "troll" in lines[0] and "t.py" in lines[0]
     assert lines[1].startswith("  1 def f():")
     assert lines[2].startswith("  2     return 1")
     assert "^G Help" in lines[-2] and "^X Exit" in lines[-1]
@@ -161,7 +161,7 @@ def test_fit():
 
 
 def test_picker_ranking_prefers_label_then_aliases():
-    from diffedit.prompt import PickerItem
+    from troll.prompt import PickerItem
 
     items = [PickerItem("justify-all"), PickerItem("justify", search_text="justify reflow wrap"), PickerItem("goto", search_text="goto line g")]
     p = Picker("t", items, lambda *a: None)
@@ -174,9 +174,9 @@ def test_picker_ranking_prefers_label_then_aliases():
 
 
 def test_cursor_sits_on_the_character_it_points_at():
-    from diffedit.diffmodel import DiffState
-    from diffedit.document import Document
-    from diffedit.editor import Editor
+    from troll.diffmodel import DiffState
+    from troll.document import Document
+    from troll.editor import Editor
 
     for numbers in (True, False):
         for diff in (False, True):

@@ -1,4 +1,4 @@
-from diffedit.merge import merge3, merge3_bytes
+from troll.merge import merge3, merge3_bytes
 
 
 def test_trivial_cases():

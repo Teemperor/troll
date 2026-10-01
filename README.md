@@ -1,20 +1,20 @@
-# diffedit
+# troll
 
 A terminal text editor with nano's keys, plus syntax highlighting, smarter auto-formatting, a command palette, and a way to **edit the diff of an existing git commit**. It's written in pure Python (stdlib + curses) and has no dependencies.
 
 ```sh
-pip install -e .              # installs `diffedit` and `git-diffedit`
-diffedit file.py              # like nano
-diffedit +42 file.py          # open at line 42 (also file.py:42)
-git diffedit HEAD~2           # clean up the changes made by HEAD~2
-git diffedit                  # pick a commit from the log
+pip install -e .              # installs `troll` and `git-troll`
+troll file.py                 # like nano
+troll +42 file.py             # open at line 42 (also file.py:42)
+git troll HEAD~2              # clean up the changes made by HEAD~2
+git troll                     # pick a commit from the log
 ```
 
-Without installing: `python3 -m diffedit ...`
+Without installing: `python3 -m troll ...`
 
 ## Editing a commit
 
-`git diffedit REV` (or `diffedit --commit REV`, or the `commit REV` command inside the editor) opens a list of the files the commit touched, plus its message. Press Enter on a file to open it:
+`git troll REV` (or `troll --commit REV`, or the `commit REV` command inside the editor) opens a list of the files the commit touched, plus its message. Press Enter on a file to open it:
 
 - The file is shown **as of that commit**, with the commit's diff drawn on top. Lines the commit added have a green `+`. Lines it removed appear as red, read-only `-` ghost lines.
 - Unchanged code is **folded away** so you only see the diff with a few lines of context. `M-Z` toggles the fold.
@@ -23,10 +23,10 @@ Without installing: `python3 -m diffedit ...`
 - Prefer two columns? Turn on **Side-by-side diff** in `settings` (or run `side-by-side`). Your editable version is on the left, the version before the commit on the right, with the lines aligned. Removed lines are marked `-` on the right, and rows that only exist on the right are skipped by the cursor.
 - `^S` rewrites the commit. Any later commits are replayed on top of it automatically. The `revert` command undoes your edit at the cursor.
 
-How the rewrite works (`diffedit/gitcommit.py`):
+How the rewrite works (`troll/gitcommit.py`):
 
 - It uses git plumbing only: no checkout, no interactive rebase, and it never leaves you in a half-finished state. Author, dates and message are kept.
-- Later commits are replayed with a line-based three-way merge (`diffedit/merge.py`). It only reports a conflict when a later commit changed the same lines you edited. Plain git would also stop at changes on neighbouring lines; this merge doesn't. That matters when you reword a comment that sits directly above a line a later commit changed.
+- Later commits are replayed with a line-based three-way merge (`troll/merge.py`). It only reports a conflict when a later commit changed the same lines you edited. Plain git would also stop at changes on neighbouring lines; this merge doesn't. That matters when you reword a comment that sits directly above a line a later commit changed.
 - If anything conflicts, nothing is changed and your edits stay in the editor so you can adjust them.
 - It refuses to run on merge commits, on history that contains merges, and while a rebase or merge is in progress.
 - Afterwards the old HEAD is saved in `ORIG_HEAD`. Undo the rewrite with `git reset --keep ORIG_HEAD`.

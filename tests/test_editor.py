@@ -1,6 +1,6 @@
 import os
 
-from diffedit.prompt import Choice, HelpScreen, Picker, Prompt
+from troll.prompt import Choice, HelpScreen, Picker, Prompt
 
 from conftest import editor_with
 
@@ -347,7 +347,7 @@ def test_open_file_with_line_number(editor, tmp_path):
 
 
 def test_errors_are_reported_not_raised(tmp_path):
-    from diffedit.editor import Editor
+    from troll.editor import Editor
 
     ed = Editor(cwd=str(tmp_path))
     editor_with(ed, "x")

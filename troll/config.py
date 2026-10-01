@@ -19,15 +19,15 @@ MAX_POSITIONS = 500
 
 
 def config_path() -> str:
-    if os.environ.get("DIFFEDIT_CONFIG"):
-        return os.environ["DIFFEDIT_CONFIG"]
+    if os.environ.get("TROLL_CONFIG"):
+        return os.environ["TROLL_CONFIG"]
     base = os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config")
-    return os.path.join(base, "diffedit", "config")
+    return os.path.join(base, "troll", "config")
 
 
 def positions_path() -> str:
     base = os.environ.get("XDG_STATE_HOME") or os.path.expanduser("~/.local/state")
-    return os.path.join(base, "diffedit", "positions")
+    return os.path.join(base, "troll", "positions")
 
 
 # ------------------------------------------------------------------ settings
@@ -98,7 +98,7 @@ def save_config(settings: Settings, path: str | None = None) -> tuple[str, int]:
         with open(path, encoding="utf-8") as f:
             lines = f.read().splitlines()
     except FileNotFoundError:
-        lines = ["# diffedit settings (see 'set' in the help screen for the option names)"]
+        lines = ["# troll settings (see 'set' in the help screen for the option names)"]
     where: dict[str, int] = {}
     for i, text in enumerate(lines):
         try:

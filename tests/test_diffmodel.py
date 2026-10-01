@@ -1,6 +1,6 @@
 import random
 
-from diffedit.diffmodel import build_rows, compute, diff_opcodes, visible_intervals
+from troll.diffmodel import build_rows, compute, diff_opcodes, visible_intervals
 
 
 def apply_opcodes(a, b, ops):

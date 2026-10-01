@@ -1,16 +1,16 @@
 # CLAUDE.md
 
-diffedit: nano-style curses editor in pure Python (stdlib only, Python ≥3.10) with syntax highlighting, smart formatting, a command palette and an interactive "edit a commit's diff" mode. Entry points: `diffedit` / `git-diffedit` (`diffedit/cli.py`), or `python3 -m diffedit`.
+troll: nano-style curses editor in pure Python (stdlib only, Python ≥3.10) with syntax highlighting, smart formatting, a command palette and an interactive "edit a commit's diff" mode. Entry points: `troll` / `git-troll` (`troll/cli.py`), or `python3 -m troll`.
 
 ## Commands
 
 - Test: `python3 -m pytest -q` (~270 tests, ~10s; the git tests create real temp repos).
-- Run: `python3 -m diffedit FILE`, `python3 -m diffedit --commit HEAD~1`.
+- Run: `python3 -m troll FILE`, `python3 -m troll --commit HEAD~1`.
 - The TUI needs a real terminal. To check it end to end, drive it through a pty (`pty.fork`) and **always kill the child after a deadline**, because a modal prompt waiting for input will otherwise hang forever.
 
 ## Architecture (the core rule: logic and rendering stay separate)
 
-Nothing outside `diffedit/tui/` may import curses. The flow is:
+Nothing outside `troll/tui/` may import curses. The flow is:
 `tui/keys.py` (raw input → key names) → `Editor.handle_key(name)` → state → `view.build_frame(ed, h, w)` → `Frame` (rows of `(text, fg_style, bg_style)` segments + cursor) → `tui/app.py` paints it.
 
 | module | role |
@@ -28,7 +28,7 @@ Nothing outside `diffedit/tui/` may import curses. The flow is:
 | `commands.py` | **single source of truth** for actions: `@command(name, help, keys=..., aliases=..., prompt=...)`. The keymap, the palette and the help screen are all generated from it. Key names look like `"C-k"`, `"M-u"`, `"S-Up"`, `"M-Down"`, `"Enter"`, `"F7"` |
 | `editor.py` | dispatch order: prompt → overlay → commit overview → keymap → typed char. Modal flows (save/exit/search/replace/commit apply). `option_targets(key)` decides which `Settings` objects a change applies to. `raise_errors=True` for tests (otherwise errors become status messages) |
 | `prompt.py` | pure state machines: `Prompt`, `Choice`, `Picker` (fuzzy palette), `HelpScreen`; each sets `.done` |
-| `config.py` | the user's settings file (`load_config`/`save_config`, nanorc-style `set`/`unset` lines; `$DIFFEDIT_CONFIG` overrides the path) and the cursor position log for `remember_position` (`$XDG_STATE_HOME`). The CLI applies it before command line flags |
+| `config.py` | the user's settings file (`load_config`/`save_config`, nanorc-style `set`/`unset` lines; `$TROLL_CONFIG` overrides the path) and the cursor position log for `remember_position` (`$XDG_STATE_HOME`). The CLI applies it before command line flags |
 | `settings.py` / `settings_screen.py` | `Settings` dataclass + `OPTIONS` metadata (label, section, range, `editor_wide`, `all_files`); the settings panel overlay |
 | `view.py` | all layout: gutters, scrolling (`adjust_scroll`), unified and side-by-side diff rows, overlays, title/status/help bars |
 | `tui/theme.py` | style name → 256/8-color fg/bg |

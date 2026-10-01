@@ -4,9 +4,9 @@ import os
 
 from conftest import editor_with
 
-from diffedit import definitions as defs
-from diffedit import languages
-from diffedit.view import build_frame
+from troll import definitions as defs
+from troll import languages
+from troll.view import build_frame
 
 LL = """\
 %struct.Point = type { i32, i32 }
@@ -114,7 +114,7 @@ def test_show_definition_panel_for_metadata(editor):
 
 
 def defs_panel_width(width):
-    from diffedit.view import panel_width
+    from troll.view import panel_width
 
     return panel_width(width)
 
@@ -347,8 +347,8 @@ def test_panel_scrolls(editor):
 
 
 def test_definitions_in_commit_mode(repo):
-    from diffedit.editor import Editor
-    from diffedit.settings import Settings
+    from troll.editor import Editor
+    from troll.settings import Settings
 
     repo.commit("base", {"a.py": "def f():\n    return 1\n"})
     target_rev = repo.commit("use", {"a.py": "def f():\n    return 1\n\n\nx = f()\n"})

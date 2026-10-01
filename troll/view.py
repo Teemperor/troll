@@ -820,7 +820,7 @@ def title_row(ed, width: int) -> list[Seg]:
     doc = ed.doc
     if ed.commit is not None:
         s = ed.commit
-        left = f" diffedit · commit {s.commit.short} "
+        left = f" troll · commit {s.commit.short} "
         if s.current is None:
             center = s.commit.subject
             right = f"{len(s.entries) - 1} files" + (" · edited" if s.dirty else "")
@@ -832,7 +832,7 @@ def title_row(ed, width: int) -> list[Seg]:
             a, r = s.stats(e)
             right = f"[{pos}/{len(idx)}] +{a} -{r}" + (" · edited" if e.changed else "")
     else:
-        left = f" diffedit {__version__} "
+        left = f" troll {__version__} "
         center = doc.name if doc else ""
         right = ""
         if doc is not None:

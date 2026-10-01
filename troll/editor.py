@@ -387,7 +387,7 @@ class Editor:
         self.overlay = SettingsScreen(self)
 
     def show_help(self) -> None:
-        self.overlay = HelpScreen("diffedit help", cmds.help_lines(self))
+        self.overlay = HelpScreen("troll help", cmds.help_lines(self))
 
     def palette(self, initial: str = "") -> None:
         items = []

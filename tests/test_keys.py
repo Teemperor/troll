@@ -1,4 +1,4 @@
-from diffedit.tui.keys import KeyDecoder, parse_csi
+from troll.tui.keys import KeyDecoder, parse_csi
 
 
 def decoder(*inputs, names=None):

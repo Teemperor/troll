@@ -1,4 +1,4 @@
-from diffedit.search import compile_query, count_words, find, find_all, replacement_text
+from troll.search import compile_query, count_words, find, find_all, replacement_text
 
 
 def test_find_forward_skips_match_at_cursor_and_wraps():

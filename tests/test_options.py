@@ -1,10 +1,10 @@
 """The display, editing and saving options borrowed from nano/vim/VS Code."""
 
-from diffedit import cli, config
-from diffedit.editor import Editor
-from diffedit.settings import Settings
-from diffedit.textutil import row_of, wrap_starts
-from diffedit.view import build_frame
+from troll import cli, config
+from troll.editor import Editor
+from troll.settings import Settings
+from troll.textutil import row_of, wrap_starts
+from troll.view import build_frame
 
 from conftest import editor_with
 

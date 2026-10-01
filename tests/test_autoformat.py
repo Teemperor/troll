@@ -1,6 +1,6 @@
-from diffedit import autoformat as af
-from diffedit import languages
-from diffedit.settings import Settings
+from troll import autoformat as af
+from troll import languages
+from troll.settings import Settings
 
 PY = languages.BY_NAME["python"]
 C = languages.BY_NAME["c"]

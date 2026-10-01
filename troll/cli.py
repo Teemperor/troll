@@ -1,4 +1,4 @@
-"""Command line entry points: `diffedit` and `git-diffedit` (so `git diffedit REV` works)."""
+"""Command line entry points: `troll` and `git-troll` (so `git troll REV` works)."""
 
 from __future__ import annotations
 
@@ -15,15 +15,15 @@ from .settings import Settings
 
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
-        prog="diffedit",
+        prog="troll",
         description="A nano-style editor with syntax highlighting, smart formatting, "
         "a command palette (^T) and an interactive editor for git commits.",
         epilog="Examples:\n"
-        "  diffedit file.py                 edit a file\n"
-        "  diffedit +42 file.py             open at line 42 (+42,7 for a column)\n"
-        "  diffedit --commit HEAD~2         clean up the changes made by HEAD~2\n"
-        "  diffedit --commit                pick a commit from the log\n"
-        "  git diffedit HEAD~2              same, via the git-diffedit helper\n",
+        "  troll file.py                 edit a file\n"
+        "  troll +42 file.py             open at line 42 (+42,7 for a column)\n"
+        "  troll --commit HEAD~2         clean up the changes made by HEAD~2\n"
+        "  troll --commit                pick a commit from the log\n"
+        "  git troll HEAD~2              same, via the git-troll helper\n",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     p.add_argument("files", nargs="*", metavar="[+LINE[,COL]] FILE")
@@ -47,7 +47,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("-m", "--mouse", action="store_true", help="enable mouse support")
     p.add_argument("-B", "--backup", action="store_true", help="keep the previous version as FILE~ when saving")
     p.add_argument("-I", "--ignorercfiles", action="store_true", help="don't read the settings file")
-    p.add_argument("-V", "--version", action="version", version=f"diffedit {__version__}")
+    p.add_argument("-V", "--version", action="version", version=f"troll {__version__}")
     return p
 
 
@@ -145,10 +145,10 @@ def main(argv: list[str] | None = None) -> int:
     try:
         ed = setup_editor(args)
     except (GitError, OSError) as e:
-        print(f"diffedit: {e}", file=sys.stderr)
+        print(f"troll: {e}", file=sys.stderr)
         return 1
     if not sys.stdin.isatty() or not sys.stdout.isatty():
-        print("diffedit: needs a terminal", file=sys.stderr)
+        print("troll: needs a terminal", file=sys.stderr)
         return 1
     from .tui.app import run
 
@@ -160,7 +160,7 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def git_main(argv: list[str] | None = None) -> int:
-    """`git diffedit [REV] [options]` - edit the diff of a commit."""
+    """`git troll [REV] [options]` - edit the diff of a commit."""
     argv = list(sys.argv[1:] if argv is None else argv)
     if argv and not argv[0].startswith("-"):
         rev = argv.pop(0)

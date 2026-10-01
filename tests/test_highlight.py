@@ -1,8 +1,8 @@
 import random
 
-from diffedit import languages
-from diffedit.buffer import Buffer
-from diffedit.highlight import Highlighter, Tokenizer
+from troll import languages
+from troll.buffer import Buffer
+from troll.highlight import Highlighter, Tokenizer
 
 PY = languages.BY_NAME["python"]
 C = languages.BY_NAME["c"]

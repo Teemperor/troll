@@ -1,7 +1,7 @@
 import os
 
-from diffedit import languages
-from diffedit.document import Document, ReadOnlyError
+from troll import languages
+from troll.document import Document, ReadOnlyError
 
 import pytest
 

@@ -235,7 +235,7 @@ def build_tree(repo: str, commit: CommitInfo, files: dict[str, bytes]) -> str:
     """The commit's tree with `files` (path -> new content) replaced."""
     if not files:
         return commit.tree
-    with tempfile.TemporaryDirectory(prefix="diffedit-") as tmp:
+    with tempfile.TemporaryDirectory(prefix="troll-") as tmp:
         env = {"GIT_INDEX_FILE": os.path.join(tmp, "index")}
         run_git(repo, "read-tree", commit.tree, env=env)
         for path, data in files.items():
@@ -352,7 +352,7 @@ def rewrite_commit(repo: str, sha: str, files: dict[str, bytes], message: str | 
             "could not update the work tree (uncommitted changes to the edited files?): "
             + proc.stderr.decode(errors="replace").strip()
         )
-    run_git(repo, "update-ref", "-m", f"diffedit: edit {commit.short}", "HEAD", new_head, old_head)
+    run_git(repo, "update-ref", "-m", f"troll: edit {commit.short}", "HEAD", new_head, old_head)
     run_git(repo, "update-ref", "ORIG_HEAD", old_head, check=False)
     return RewriteResult(sha, new_sha, old_head, new_head, len(descendants))
 

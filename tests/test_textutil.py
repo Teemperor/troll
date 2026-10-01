@@ -1,4 +1,4 @@
-from diffedit.textutil import (
+from troll.textutil import (
     char_width,
     display_col,
     find_enclosing_opener,

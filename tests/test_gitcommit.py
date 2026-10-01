@@ -2,8 +2,8 @@ import os
 
 import pytest
 
-from diffedit import gitcommit
-from diffedit.gitcommit import GitError, load_commit, rewrite_commit
+from troll import gitcommit
+from troll.gitcommit import GitError, load_commit, rewrite_commit
 
 
 def test_load_commit_lists_files_with_base_and_content(repo):
@@ -33,7 +33,7 @@ def test_rewrite_head_commit_updates_worktree_and_keeps_metadata(repo):
     assert repo.git("log", "-1", "--format=%an|%ae|%ad|%s", "--date=raw") == "Ada Author|ada@example.com|1700000500 +0200|add comment"
     assert repo.git("status", "--porcelain") == ""
     assert repo.git("rev-parse", "ORIG_HEAD") == old
-    assert "diffedit: edit" in repo.git("reflog", "-1")
+    assert "troll: edit" in repo.git("reflog", "-1")
 
 
 def test_rewrite_older_commit_replays_descendants(repo):
