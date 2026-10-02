@@ -445,3 +445,17 @@ def test_only_changes_from_settings_and_config(repo):
     ed.commit.close()
     run_palette(ed, "only-changes")  # works from the file list too
     assert not ed.settings.only_changes
+
+
+def test_arrows_past_the_last_and_first_change_go_to_the_next_and_previous_file(repo):
+    target = make_history(repo)
+    ed = open_editor(repo, target)
+    ed.open_entry(1)  # docs.txt: "some docs\n" -> lines ["some docs", ""]
+    ed.keys("Down")
+    assert ed.commit.current == 1 and ed.doc.cursor[0] == 1
+    ed.keys("Down")
+    assert ed.commit.current == 2 and ed.doc.cursor == (5, 0)  # src/app.py, first change
+    ed.keys("Up", "Up", "Up")  # the context lines above the change
+    assert ed.commit.current == 2 and ed.doc.cursor[0] == 2
+    ed.keys("Up")
+    assert ed.commit.current == 1 and ed.doc.cursor == (0, 0)  # back to docs.txt's last change

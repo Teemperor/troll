@@ -570,6 +570,9 @@ def _bracket(ed, args):
 
 def _mv(method, select=False, *margs):
     def fn(ed, args):
+        if not select and method in ("move_up", "move_down"):
+            ed.move_line(-1 if method == "move_up" else 1)
+            return
         getattr(ed.doc, method)(*margs, select=select)
     return fn
 

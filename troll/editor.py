@@ -960,6 +960,16 @@ class Editor:
         doc.goto(target, 0)
         self.info(f"Change {starts.index(target) + 1}/{len(starts)}")
 
+    def move_line(self, n: int) -> None:
+        """Up/Down; past the first/last line of a commit file, go on to the previous/next file's change."""
+        doc = self.doc
+        if self.commit is not None and len(self.commit.editable_indices()) > 1:
+            rows = doc.visible_line_rows() or [0, len(doc.lines) - 1]
+            if doc.cursor[0] == (rows[0] if n < 0 else rows[-1]):
+                self.next_change(n)
+                return
+        doc.move_vertical(n)
+
     def _jump_to_last_change(self) -> None:
         doc = self.doc
         if doc is None or doc.diff is None:
