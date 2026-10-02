@@ -51,8 +51,12 @@ def build_parser() -> argparse.ArgumentParser:
     return p
 
 
-def split_positions(items: list[str]) -> list[tuple[str, int | None, int | None]]:
-    """Pair nano-style "+LINE[,COL]" arguments with the file that follows them."""
+def split_positions(items: list[str], cwd: str | None = None) -> list[tuple[str, int | None, int | None]]:
+    """Pair nano-style "+LINE[,COL]" arguments with the file that follows them.
+
+    "file.py:42", "file.py:42:7" (compiler output) and "file.py:" (a trailing
+    colon is dropped) also work, unless a file with that literal name exists.
+    """
     out = []
     line = col = None
     for item in items:
@@ -61,10 +65,11 @@ def split_positions(items: list[str]) -> list[tuple[str, int | None, int | None]
             line = int(m.group(1)) if m.group(1) not in ("", "-") else None
             col = int(m.group(2)) if m.group(2) else None
             continue
-        m = re.fullmatch(r"(.+?):(\d+)(?::(\d+))?", item)  # file.py:42[:7], like compiler output
-        if m and line is None and not os.path.exists(item):
-            out.append((m.group(1), int(m.group(2)), int(m.group(3)) if m.group(3) else None))
-            continue
+        m = re.fullmatch(r"(.+?)(?::(\d+)(?::(\d+))?)?:?", item)
+        if m and m.group(1) != item and not os.path.exists(os.path.join(cwd or "", os.path.expanduser(item))):
+            item = m.group(1)
+            if line is None and m.group(2):
+                line, col = int(m.group(2)), int(m.group(3)) if m.group(3) else None
         out.append((item, line, col))
         line = col = None
     return out
@@ -118,7 +123,7 @@ def setup_editor(args) -> Editor:
             ed.commit_picker()
             if ed.overlay is None:  # no commits
                 raise GitError(ed.message.text if ed.message else "no commits")
-    for path, line, col in split_positions(args.files):
+    for path, line, col in split_positions(args.files, args.directory):
         doc = ed.open_file(path, line, col)
         if args.view:
             doc.readonly = True

@@ -7,6 +7,26 @@ def test_split_positions():
     assert cli.split_positions(["+12", "a.py", "b.py"]) == [("a.py", 12, None), ("b.py", None, None)]
     assert cli.split_positions(["+3,7", "a.py"]) == [("a.py", 3, 7)]
     assert cli.split_positions(["src/x.py:40:2"]) == [("src/x.py", 40, 2)]
+    assert cli.split_positions(["x.cpp:104"]) == [("x.cpp", 104, None)]
+    assert cli.split_positions(["x.cpp:"]) == [("x.cpp", None, None)]
+    assert cli.split_positions(["x.cpp:104:"]) == [("x.cpp", 104, None)]
+    assert cli.split_positions(["x.cpp:104:2:"]) == [("x.cpp", 104, 2)]
+    assert cli.split_positions(["+5", "x.cpp:104"]) == [("x.cpp", 5, None)]
+
+
+def test_split_positions_prefers_existing_files(tmp_path):
+    for name in ("a.cpp:104", "b.cpp:", "c.cpp:1:2"):
+        (tmp_path / name).write_text("")
+    names = ["a.cpp:104", "b.cpp:", "c.cpp:1:2", "d.cpp:3"]
+    assert cli.split_positions(names, str(tmp_path)) == [
+        ("a.cpp:104", None, None), ("b.cpp:", None, None), ("c.cpp:1:2", None, None), ("d.cpp", 3, None)]
+
+
+def test_setup_editor_opens_file_at_line_and_column(tmp_path):
+    (tmp_path / "f.cpp").write_text("one\ntwo\nthree\n")
+    args = cli.build_parser().parse_args(["-I", "-C", str(tmp_path), "f.cpp:3:2"])
+    ed = cli.setup_editor(args)
+    assert ed.doc.path.endswith("f.cpp") and ed.doc.cursor == (2, 1)
 
 
 def test_setup_editor_opens_files_with_options(tmp_path):
