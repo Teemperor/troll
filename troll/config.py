@@ -1,4 +1,4 @@
-"""Files in the user's home: the settings file and the cursor position log.
+"""Files in the user's home: the settings file, the cursor position log and the recently used commands.
 
 The settings file holds one option per line, in any of these forms:
 
@@ -16,6 +16,7 @@ import os
 from .settings import OPTION_INFO, Settings, resolve_option, set_option
 
 MAX_POSITIONS = 500
+MAX_RECENT_COMMANDS = 100
 
 
 def config_path() -> str:
@@ -28,6 +29,10 @@ def config_path() -> str:
 def positions_path() -> str:
     base = os.environ.get("XDG_STATE_HOME") or os.path.expanduser("~/.local/state")
     return os.path.join(base, "troll", "positions")
+
+
+def recent_commands_path() -> str:
+    return os.path.join(os.path.dirname(positions_path()), "recent_commands")
 
 
 # ------------------------------------------------------------------ settings
@@ -165,6 +170,32 @@ def remember_positions(entries: dict[str, tuple[int, int]]) -> None:
         with open(tmp, "w", encoding="utf-8", errors="surrogateescape") as f:
             for file, (r, c) in items:
                 f.write(f"{r}\t{c}\t{file}\n")
+        os.replace(tmp, path)
+    except OSError:
+        pass
+
+
+# ---------------------------------------------------------- recent commands
+
+
+def recent_commands() -> list[str]:
+    """Command names picked in the palette, most recent first."""
+    try:
+        with open(recent_commands_path(), encoding="utf-8") as f:
+            return [line.strip() for line in f if line.strip()]
+    except (OSError, UnicodeDecodeError):
+        return []
+
+
+def remember_command(name: str) -> None:
+    """Move `name` to the front of the recently used commands (best effort: errors are ignored)."""
+    names = [name] + [n for n in recent_commands() if n != name]
+    path = recent_commands_path()
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        tmp = path + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            f.write("".join(n + "\n" for n in names[:MAX_RECENT_COMMANDS]))
         os.replace(tmp, path)
     except OSError:
         pass

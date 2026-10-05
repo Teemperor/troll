@@ -395,14 +395,21 @@ class Editor:
             if c.hidden or (c.commit_only and self.commit is None):
                 continue
             items.append(PickerItem(c.name, c.help, c.name, cmds.key_label(c.keys[0]) if c.keys else "", c.name + " " + " ".join(c.aliases)))
+        # most recently used first (the first one is preselected); the rest keep their order
+        rank = {name: i for i, name in enumerate(config.recent_commands())}
+        items.sort(key=lambda it: rank.get(it.value, len(rank)))
 
         def chosen(item, text):
             text = text.strip()
             if text and (" " in text or item is None or cmds.is_special_line(text)):
                 self.command_history.append(text)
+                cmd = None if cmds.is_special_line(text) else cmds.find_command(text.split(" ")[0])
+                if cmd is not None:
+                    config.remember_command(cmd.name)
                 self.run_line(text)
             elif item is not None:
                 self.command_history.append(item.label)
+                config.remember_command(item.value)
                 cmds.invoke_interactive(self, cmds.COMMANDS[item.value])
 
         p = Picker(

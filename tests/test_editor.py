@@ -260,6 +260,22 @@ def test_command_palette_asks_for_arguments(editor):
     assert doc.cursor == (2, 0)
 
 
+def test_command_palette_lists_recently_used_commands_first(editor):
+    doc = editor_with(editor, "x = 1")
+    run(editor, "comment")
+    run(editor, "set tabsize 2")
+    editor.keys("C-t")
+    labels = [item.label for item in editor.overlay.filtered()]
+    assert labels[:2] == ["set", "comment"]
+    assert editor.overlay.current().label == "set"  # the most recent one is preselected
+    assert editor.overlay.field.text == ""
+    editor.type("so")  # typing starts from an empty line
+    assert editor.overlay.field.text == "so" and editor.overlay.current().label == "sort"
+    editor.keys("Esc")
+    editor.keys("C-t", "Down", "Enter")  # the second most recent: comment again
+    assert doc.text() == "x = 1"
+
+
 def test_command_lines(editor):
     doc = editor_with(editor, "b\na\nc\n")
     run(editor, "2")

@@ -28,7 +28,7 @@ Nothing outside `troll/tui/` may import curses. The flow is:
 | `commands.py` | **single source of truth** for actions: `@command(name, help, keys=..., aliases=..., prompt=...)`. The keymap, the palette and the help screen are all generated from it. Key names look like `"C-k"`, `"M-u"`, `"S-Up"`, `"M-Down"`, `"Enter"`, `"F7"` |
 | `editor.py` | dispatch order: prompt → overlay → commit overview → keymap → typed char. Modal flows (save/exit/search/replace/commit apply). `option_targets(key)` decides which `Settings` objects a change applies to. `raise_errors=True` for tests (otherwise errors become status messages) |
 | `prompt.py` | pure state machines: `Prompt`, `Choice`, `Picker` (fuzzy palette), `HelpScreen`; each sets `.done` |
-| `config.py` | the user's settings file (`load_config`/`save_config`, nanorc-style `set`/`unset` lines; `$TROLL_CONFIG` overrides the path) and the cursor position log for `remember_position` (`$XDG_STATE_HOME`). The CLI applies it before command line flags |
+| `config.py` | the user's settings file (`load_config`/`save_config`, nanorc-style `set`/`unset` lines; `$TROLL_CONFIG` overrides the path), the cursor position log for `remember_position` and the palette's recently used commands (both under `$XDG_STATE_HOME`). The CLI applies it before command line flags |
 | `settings.py` / `settings_screen.py` | `Settings` dataclass + `OPTIONS` metadata (label, section, range, `editor_wide`, `all_files`); the settings panel overlay |
 | `view.py` | all layout: gutters, scrolling (`adjust_scroll`), unified and side-by-side diff rows, overlays, title/status/help bars |
 | `tui/theme.py` | style name → 256/8-color fg/bg |
