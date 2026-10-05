@@ -14,7 +14,7 @@ from dataclasses import dataclass
 
 from . import __version__
 from .commit_session import STATUS_NAMES
-from .project import Entry
+from .project import context_ranges
 from .prompt import Choice, HelpScreen, Picker, Prompt
 from .settings_screen import SettingsScreen
 from .textutil import (
@@ -701,7 +701,7 @@ def browser_rows(ed, height: int, width: int) -> tuple[list[list[Seg]], tuple[in
     if b.filter.text:
         rb.add(b.filter.text, "palette.input", "palette")
     else:
-        back = "Esc back to the list" if b.hits is not None else "^W search in files"
+        back = "M-+/M-- context · Esc back to the list" if b.hits is not None else "^W search in files"
         rb.add(f"type to filter · Enter open · ← back · {back} · ^F find file", "palette.placeholder", "palette")
     rb.pad("palette", "palette")
     rows.append(rb.row())
@@ -709,50 +709,95 @@ def browser_rows(ed, height: int, width: int) -> tuple[list[list[Seg]], tuple[in
 
     list_h = max(1, height - len(rows))
     b.selected = max(0, min(b.selected, max(0, len(items) - 1)))
-    if b.selected < b.scroll:
-        b.scroll = b.selected
-    elif b.selected >= b.scroll + list_h:
-        b.scroll = b.selected - list_h + 1
-    b.scroll = max(0, min(b.scroll, max(0, len(items) - list_h)))
     if not items:
         rb = RowBuilder(width)
         rb.add("   no matches" if b.filter.text or b.hits is not None else "   (empty directory)", "comment")
         rows.append(rb.row())
-    open_docs = {os.path.abspath(d.path): d for d in ed.docs if d.path}
-    loc_w = 0
-    if b.hits is not None:
-        loc_w = min(max([_w(f"{h.path}:{h.row + 1}") for h in items[b.scroll : b.scroll + list_h]] + [0]),
+    if b.hits is None:
+        heights = [1] * len(items)
+    else:
+        ranges = context_ranges(items, ed.settings.search_context)
+        heights = [e - s_ + (1 if _gap_before(items, ranges, i) else 0) for i, (s_, e) in enumerate(ranges)]
+    # scroll by whole items, so the selected one (with its context) is entirely visible
+    if b.selected < b.scroll:
+        b.scroll = b.selected
+    while b.scroll < b.selected and sum(heights[b.scroll : b.selected + 1]) > list_h:
+        b.scroll += 1
+    while b.scroll > 0 and sum(heights[b.scroll - 1 :]) <= list_h:
+        b.scroll -= 1
+    if b.hits is None:
+        for i in range(b.scroll, len(items)):
+            if len(rows) >= height:
+                break
+            rows.append(_entry_row(ed, items[i], i == b.selected, width))
+    else:
+        shown = range(b.scroll, len(items))
+        loc_w = min(max([_w(f"{items[i].path}:{items[i].row + 1}") for i in shown[:list_h]] + [0]),
                     max(10, width // 2))
-    for i in range(b.scroll, min(len(items), b.scroll + list_h)):
-        item = items[i]
-        sel = i == b.selected
-        bg = "selection" if sel else None
-        rb = RowBuilder(width)
-        rb.add(" ▸ " if sel else "   ", "label", bg)
-        if isinstance(item, Entry):
-            if item.is_dir:
-                rb.add(item.name + "/", "keyword", bg)
-            else:
-                rb.add(item.name, "text", bg)
-                doc = open_docs.get(os.path.abspath(item.path))
-                if doc is not None:
-                    rb.add("  modified" if doc.modified else "  open", "gutter.edit", bg)
-        else:
-            loc = truncate_left(f"{item.path}:{item.row + 1}", loc_w)
-            rb.add(loc + " " * (loc_w - _w(loc) + 2), "comment", bg)
-            lead = len(item.text) - len(item.text.lstrip())
-            text = item.text[lead:]
-            s, e = item.col - lead, item.end - lead
-            fg = ["text"] * len(text)
-            cell_bg = [None] * len(text)
-            for k in range(max(0, s), min(e, len(text))):
-                cell_bg[k] = "match.other"
-            emit_cells(text, fg, cell_bg, rb, max(0, width - rb.used), 0, ed.settings.tab_size, False, bg)
-        rb.pad("text", bg)
-        rows.append(rb.row())
+        for i in shown:
+            if len(rows) >= height:
+                break
+            if i > b.scroll and _gap_before(items, ranges, i):
+                rb = RowBuilder(width)
+                rb.add("   " + " " * max(0, loc_w - 1) + "⋯", "fold")
+                rows.append(rb.row())
+            rows.extend(_hit_rows(ed, items[i], ranges[i], i == b.selected, loc_w, width))
     while len(rows) < height:
         rows.append([])
     return rows[:height], cursor
+
+
+def _gap_before(hits, ranges, i: int) -> bool:
+    """A separator goes before hit `i` when its lines don't continue the previous hit's."""
+    if i == 0 or ranges[i][1] - ranges[i][0] <= 1 and ranges[i - 1][1] - ranges[i - 1][0] <= 1:
+        return False  # no context: a plain list
+    return hits[i - 1].path != hits[i].path or ranges[i - 1][1] != ranges[i][0]
+
+
+def _entry_row(ed, item, sel: bool, width: int) -> list[Seg]:
+    bg = "selection" if sel else None
+    rb = RowBuilder(width)
+    rb.add(" ▸ " if sel else "   ", "label", bg)
+    if item.is_dir:
+        rb.add(item.name + "/", "keyword", bg)
+    else:
+        rb.add(item.name, "text", bg)
+        doc = next((d for d in ed.docs if d.path and os.path.abspath(d.path) == os.path.abspath(item.path)), None)
+        if doc is not None:
+            rb.add("  modified" if doc.modified else "  open", "gutter.edit", bg)
+    rb.pad("text", bg)
+    return rb.row()
+
+
+def _hit_rows(ed, hit, rng: tuple[int, int], sel: bool, loc_w: int, width: int) -> list[list[Seg]]:
+    """A search hit: its line (with the location) plus the context lines in `rng`."""
+    start, end = rng
+    lines = hit.lines or [hit.text]
+    rows_ = range(start, end) if hit.lines else range(hit.row, hit.row + 1)
+    texts = {r: (lines[r] if hit.lines else hit.text) for r in rows_}
+    # drop the indentation the shown lines have in common, keeping their relative indent
+    lead = min((len(t) - len(t.lstrip()) for t in texts.values() if t.strip()), default=0)
+    out = []
+    for r in rows_:
+        text = texts[r][lead:]
+        is_hit = r == hit.row
+        bg = "selection" if sel and is_hit else None
+        rb = RowBuilder(width)
+        rb.add(" ▸ " if sel and is_hit else "   ", "label", bg)
+        if is_hit:
+            loc = truncate_left(f"{hit.path}:{hit.row + 1}", loc_w)
+            rb.add(loc + " " * (loc_w - _w(loc) + 2), "comment", bg)
+        else:
+            rb.add(f"{r + 1:>{loc_w}}  ", "gutter", bg)
+        fg = ["text" if is_hit else "comment"] * len(text)
+        cell_bg = [None] * len(text)
+        if is_hit:
+            for k in range(max(0, hit.col - lead), min(hit.end - lead, len(text))):
+                cell_bg[k] = "match.other"
+        emit_cells(text, fg, cell_bg, rb, max(0, width - rb.used), 0, ed.settings.tab_size, False, bg)
+        rb.pad("text", bg)
+        out.append(rb.row())
+    return out
 
 
 # ------------------------------------------------------------- overlays
@@ -1011,6 +1056,10 @@ HELP_BROWSER = [
     ("Enter", "Open"), ("^W", "Search Files"), ("↑↓", "Select"), ("^T", "Commands"), ("^G", "Help"),
     ("^X", "Quit"), ("^F", "Find File"), ("←", "Up / Back"), ("Esc", "Back to File"), ("^R", "Reload"),
 ]
+HELP_BROWSER_HITS = [
+    ("Enter", "Open"), ("^W", "Search Files"), ("↑↓", "Select"), ("M-+", "More Context"), ("^G", "Help"),
+    ("^X", "Quit"), ("^F", "Find File"), ("Esc", "Back to List"), ("M--", "Less Context"), ("^T", "Commands"),
+]
 HELP_SEARCH = [
     ("^G", "Help"), ("M-C", "Case Sens"), ("M-R", "Reg.exp."), ("M-B", "Backwards"), ("↑", "History"),
     ("^C", "Cancel"), ("Enter", "Search"), ("^\\", "Replace"), ("Tab", "Complete"), ("", ""),
@@ -1038,7 +1087,7 @@ def help_items(ed) -> list[tuple[str, str]]:
     if ed.in_overview:
         return HELP_OVERVIEW
     if ed.in_browser:
-        return HELP_BROWSER
+        return HELP_BROWSER if ed.browser.hits is None else HELP_BROWSER_HITS
     if ed.commit is not None:
         return HELP_COMMIT_FILE
     return HELP_NORMAL

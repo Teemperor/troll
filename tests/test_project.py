@@ -139,3 +139,46 @@ def test_quit_from_overview_asks_about_modified_buffers(tmp_path):
     assert not ed.in_browser and ed.prompt is not None
     ed.keys("n")
     assert ed.in_browser and not ed.docs
+
+
+def test_context_ranges_share_lines_between_close_hits():
+    lines = [f"l{i}" for i in range(20)]
+    hits = [project.Hit("a", r, 0, 1, lines[r], lines) for r in (2, 4, 15)]
+    assert project.context_ranges(hits, 0) == [(2, 3), (4, 5), (15, 16)]
+    assert project.context_ranges(hits, 2) == [(0, 4), (4, 7), (13, 18)]
+    other = project.Hit("b", 3, 0, 1, "x", ["", "", "", "x"])
+    assert project.context_ranges([hits[0], other], 5) == [(0, 8), (0, 4)]
+
+
+def test_search_results_context_keys(tmp_path):
+    make_tree(tmp_path)
+    (tmp_path / "long.py").write_text("".join(f"line {i}\n" for i in range(30)) + "    needle here\n"
+                                      + "".join(f"after {i}\n" for i in range(5)))
+    ed = ide(tmp_path)
+    ed.keys("C-w")
+    ed.type("needle")
+    ed.keys("Enter")
+    text = build_frame(ed, 20, 80).text()
+    assert "long.py:31  needle here" in text and "line 29" not in text
+    ed.keys("M-+", "M-=")
+    assert ed.settings.search_context == 2 and "2 lines of context" in ed.message.text
+    text = build_frame(ed, 20, 80).text()
+    lines = [l.rstrip() for l in text.split("\n")]
+    i = next(k for k, l in enumerate(lines) if "needle here" in l)
+    assert lines[i - 2].endswith("29  line 28") and lines[i + 2].endswith("33  after 1")
+    assert "    needle" in lines[i]  # relative indentation is kept
+    ed.keys("M--", "M--", "M--")
+    assert ed.settings.search_context == 0
+
+
+def test_context_keeps_the_selected_hit_visible(tmp_path):
+    (tmp_path / "f.txt").write_text("".join(f"hit {i}\n" + "x\n" * 9 for i in range(10)))
+    ed = ide(tmp_path)
+    ed.settings.search_context = 4
+    ed.keys("C-w")
+    ed.type("hit")
+    ed.keys("Enter")
+    for _ in range(7):
+        ed.keys("Down")
+    text = build_frame(ed, 20, 80).text()
+    assert "▸ f.txt:71  hit 7" in text

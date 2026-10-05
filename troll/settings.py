@@ -22,6 +22,7 @@ class Settings:
     help_lines: bool = True
     case_sensitive: bool = False
     regex_search: bool = False
+    search_context: int = 0  # lines shown around each match when searching files (IDE mode)
     fold_context: int = 3
     message_width: int = 72  # commit messages: justify/hard-wrap width and subject line limit
     message_guide: int = 73  # commit messages: guide stripe column (0 = off); 73 = just past 72 characters
@@ -97,6 +98,9 @@ OPTIONS: tuple[OptionInfo, ...] = (
     OptionInfo("help_lines", "Shortcut bar", "Show the two lines of shortcuts at the bottom", "Display", editor_wide=True),
     OptionInfo("case_sensitive", "Case-sensitive search", "Also toggled with M-C in the search prompt", "Search", editor_wide=True),
     OptionInfo("regex_search", "Regex search", "Also toggled with M-R in the search prompt", "Search", editor_wide=True),
+    OptionInfo("search_context", "File search context",
+               "Lines shown around each match when searching files (M-+/M-- in the results)", "Search",
+               minimum=0, maximum=20, editor_wide=True),
     OptionInfo("highlight_search", "Highlight all matches",
                "Keep highlighting every match of the last search ('nohl' clears it)", "Search", editor_wide=True),
     OptionInfo("message_width", "Message line width",
@@ -148,6 +152,8 @@ ALIASES = {
     "case": "case_sensitive",
     "regex": "regex_search",
     "context": "fold_context",
+    "searchcontext": "search_context",
+    "grepcontext": "search_context",
     "messagewidth": "message_width",
     "msgwidth": "message_width",
     "commitwidth": "message_width",

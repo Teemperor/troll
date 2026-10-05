@@ -934,7 +934,7 @@ IDE MODE
   `troll DIR` opens a directory overview instead of a file. Enter opens a file or a
   directory, Left/Backspace goes up, typing filters the list. ^W searches every file
   below the shown directory and lists the matching lines (Enter jumps there, M-W finds
-  the next match in that file). ^F finds a file by name. Closing a file (^X) returns
+  the next match in that file; M-+/M-- show more/fewer lines around each match). ^F finds a file by name. Closing a file (^X) returns
   to the overview; M-O shows it without closing, Esc there goes back to the file.
 
 EDITING A COMMIT

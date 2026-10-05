@@ -909,6 +909,8 @@ class Editor:
             self.search_files_prompt()
         elif key == "C-f":
             self.find_file()
+        elif key in ("M-=", "M-+", "M--"):
+            self.search_context(1 if key != "M--" else -1)
         elif key == "C-r" or key == "F5":
             b.refresh()
             self.info("Reloaded the directory")
@@ -946,6 +948,12 @@ class Editor:
             b.enter(item.path)
         else:
             self._browser_open(item.path)
+
+    def search_context(self, delta: int) -> None:
+        """More/fewer lines around each match in the file search results."""
+        s = self.settings
+        s.search_context = max(0, min(20, s.search_context + delta))
+        self.info(f"{s.search_context} line{'s' if s.search_context != 1 else ''} of context around matches")
 
     def search_files_prompt(self) -> None:
         if self.commit is not None:

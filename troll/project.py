@@ -10,7 +10,7 @@ from __future__ import annotations
 import os
 import re
 import subprocess
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from .prompt import LineEdit, fuzzy_score
 
@@ -35,6 +35,7 @@ class Hit:
     col: int
     end: int
     text: str
+    lines: list[str] = field(default_factory=list, repr=False)  # the whole file (shared by its hits), for context
 
 
 def list_dir(path: str) -> list[Entry]:
@@ -101,14 +102,33 @@ def search_files(root: str, files: list[str], pattern: re.Pattern, max_hits: int
         text = data.decode("utf-8", "surrogateescape")
         if not pattern.search(text):
             continue
-        for row, line in enumerate(text.replace("\r\n", "\n").split("\n")):
+        lines = text.replace("\r\n", "\n").split("\n")
+        for row, line in enumerate(lines):
             for m in pattern.finditer(line):
                 if m.end() > m.start():
-                    hits.append(Hit(rel, row, m.start(), m.end(), line))
+                    hits.append(Hit(rel, row, m.start(), m.end(), line, lines))
                     break  # one hit per line
             if len(hits) >= max_hits:
                 return hits
     return hits
+
+
+def context_ranges(hits: list[Hit], context: int) -> list[tuple[int, int]]:
+    """For each hit, the rows [start, end) to show around it with `context` lines
+    of context. Neighbouring hits in the same file share lines instead of
+    repeating them: a line belongs to the earlier hit."""
+    out = []
+    for i, h in enumerate(hits):
+        n = len(h.lines) or h.row + 1
+        start, end = max(0, h.row - context), min(n, h.row + context + 1)
+        prev = hits[i - 1] if i else None
+        if prev is not None and prev.path == h.path and prev.row < h.row:
+            start = max(start, min(out[-1][1], h.row))
+        nxt = hits[i + 1] if i + 1 < len(hits) else None
+        if nxt is not None and nxt.path == h.path and h.row < nxt.row:
+            end = min(end, nxt.row)
+        out.append((start, end))
+    return out
 
 
 class Browser:
