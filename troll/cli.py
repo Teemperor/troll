@@ -21,6 +21,7 @@ def build_parser() -> argparse.ArgumentParser:
         epilog="Examples:\n"
         "  troll file.py                 edit a file\n"
         "  troll +42 file.py             open at line 42 (+42,7 for a column)\n"
+        "  troll src/                    IDE mode: browse and search a directory\n"
         "  troll --commit HEAD~2         clean up the changes made by HEAD~2\n"
         "  troll --commit                pick a commit from the log\n"
         "  git troll HEAD~2              same, via the git-troll helper\n",
@@ -123,7 +124,11 @@ def setup_editor(args) -> Editor:
             ed.commit_picker()
             if ed.overlay is None:  # no commits
                 raise GitError(ed.message.text if ed.message else "no commits")
+    project = None
     for path, line, col in split_positions(args.files, args.directory):
+        if project is None and os.path.isdir(os.path.join(ed.cwd, os.path.expanduser(path))):
+            project = path  # IDE mode
+            continue
         doc = ed.open_file(path, line, col)
         if args.view:
             doc.readonly = True
@@ -136,7 +141,9 @@ def setup_editor(args) -> Editor:
             doc.settings.tab_size = args.tabsize
         if args.tabstospaces or args.tabs:
             doc.settings.expand_tabs = bool(args.tabstospaces)
-    if not ed.docs and ed.commit is None and ed.overlay is None:
+    if project is not None:
+        ed.open_project(project)
+    elif not ed.docs and ed.commit is None and ed.overlay is None:
         ed.new_doc()
     if len(ed.docs) > 1:
         ed.index = 0

@@ -15,13 +15,14 @@ from collections.abc import Callable
 from dataclasses import dataclass
 
 from . import commands as cmds
-from . import config, gitcommit, languages
+from . import config, gitcommit, languages, project
 from . import definitions as defs
 from .commit_session import CommitSession
 from .diffmodel import diff_opcodes
 from .document import Document, ReadOnlyError, decode
 from .prompt import Choice, HelpScreen, Picker, PickerItem, Prompt, PromptOption, is_printable
 from .search import compile_query, find, replacement_text
+from .project import Browser
 from .textutil import index_at_display_col
 from .view import last_visible_index
 from .settings import Settings
@@ -55,6 +56,7 @@ class Editor:
         self.docs: list[Document] = []
         self.index = 0
         self.commit: CommitSession | None = None
+        self.browser: Browser | None = None  # IDE mode (a directory was opened)
         self.cutbuffer: str | None = None
         self.last_command: str | None = None
         self.prompt: Prompt | Choice | None = None
@@ -92,6 +94,11 @@ class Editor:
     @property
     def in_overview(self) -> bool:
         return self.commit is not None and self.commit.current is None
+
+    @property
+    def in_browser(self) -> bool:
+        """The directory overview of IDE mode is on screen."""
+        return self.browser is not None and self.commit is None and (self.browser.visible or not self.docs)
 
     def add_doc(self, doc: Document) -> Document:
         self.docs.append(doc)
@@ -133,6 +140,10 @@ class Editor:
             if self.commit.step(delta):
                 self.info(f"Switched to {self.commit.entry.label}")
             return
+        if self.in_browser and self.docs:
+            self.browser.visible = False
+            self.info(f"Switched to {self.doc.name}")
+            return
         if len(self.docs) < 2:
             self.info("No more open file buffers")
             return
@@ -148,6 +159,10 @@ class Editor:
             return
         self.remember_positions([self.doc])
         del self.docs[self.index]
+        if self.browser is not None:
+            self.index = max(0, min(self.index, len(self.docs) - 1))
+            self.show_browser()
+            return
         if not self.docs:
             self.quit_requested = True
             return
@@ -274,6 +289,9 @@ class Editor:
         if self.in_overview:
             self._overview_key(key)
             return
+        if self.in_browser:
+            self._browser_key(key)
+            return
         if key == "Esc" and self.definition is not None:
             self.definition = None
             return
@@ -318,7 +336,7 @@ class Editor:
         kind, y, x = key.split(":")
         y, x = int(y), int(x)
         doc = self.doc
-        if self.prompt is not None or self.overlay is not None or doc is None or self.in_overview:
+        if self.prompt is not None or self.overlay is not None or doc is None or self.in_overview or self.in_browser:
             return
         if self.definition is not None and self.panel_x is not None and x >= self.panel_x:
             if kind != "Click":
@@ -344,6 +362,9 @@ class Editor:
             return
         if self.overlay is not None and isinstance(self.overlay, Picker):
             self.overlay.field.handle("Paste:" + text)
+            return
+        if self.in_browser:
+            self._browser_key("Paste:" + text.replace("\n", " "))
             return
         doc = self.doc
         if doc is None or not text:
@@ -465,6 +486,9 @@ class Editor:
                 self.commit.close()
                 return
             self.exit_commit()
+            return
+        if self.in_browser:
+            self.quit_all()
             return
         doc = self.doc
         if doc is None:
@@ -762,6 +786,8 @@ class Editor:
             self.quit_requested = True
             return
         self.index = self.docs.index(dirty[0])
+        if self.browser is not None:
+            self.browser.visible = False
         self.exit()
 
     def keep_cursor_in_view(self) -> None:
@@ -810,6 +836,182 @@ class Editor:
                 self.run("lang", item.value)
 
         self.overlay = Picker("Language", items, pick)
+
+    # ------------------------------------------------------------- IDE mode
+    def open_project(self, path: str) -> None:
+        """IDE mode: show the directory overview of `path` (which becomes the working directory)."""
+        full = os.path.abspath(os.path.join(self.cwd, os.path.expanduser(path)))
+        if not os.path.isdir(full):
+            raise NotADirectoryError(f'"{path}" is not a directory')
+        self.browser = Browser(full)
+        self.cwd = full
+        self.browser.visible = not self.docs
+        self.info(f"Browsing {full}")
+
+    def show_browser(self) -> None:
+        if self.commit is not None:
+            self.error("Leave the commit editor first (^X)")
+            return
+        if self.browser is None:
+            self.browser = Browser(self.cwd)
+        b = self.browser
+        b.visible = True
+        if b.hits is None:
+            b.refresh()
+        doc = self.doc
+        if doc is not None and doc.path and b.hits is None:
+            # point at the file we come from when it's in this directory
+            d, name = os.path.split(os.path.abspath(doc.path))
+            if d == b.dir:
+                b.filter.set("")
+                b.selected = next((i for i, e in enumerate(b.entries) if e.name == name), b.selected)
+
+    def _browser_open(self, path: str, line: int | None = None, col: int | None = None) -> Document:
+        rel = os.path.relpath(path, self.cwd)
+        doc = self.open_file(path if rel.startswith("..") else rel, line, col)
+        if self.browser is not None:
+            self.browser.visible = False
+        return doc
+
+    def _browser_key(self, key: str) -> None:
+        b = self.browser
+        page = max(1, self.body_height - 4)
+        if key in ("Up", "C-p"):
+            b.wrap(-1)
+        elif key in ("Down", "C-n"):
+            b.wrap(1)
+        elif key in ("PageUp", "C-y"):
+            b.move(-page)
+        elif key in ("PageDown", "C-v"):
+            b.move(page)
+        elif key in ("Home", "M-\\"):
+            b.selected = 0
+        elif key in ("End", "M-/"):
+            b.selected = max(0, len(b.items()) - 1)
+        elif key in ("Enter", "Right"):
+            self._browser_choose()
+        elif key in ("Left", "Backspace", "C-h") and not b.filter.text:
+            if b.hits is not None:
+                b.close_hits()
+            elif not b.parent():
+                self.info("This is the top of the project")
+        elif key == "Esc" or key == "C-c":
+            if b.filter.text:
+                b.filter.set("")
+                b.selected = 0
+            elif b.hits is not None:
+                b.close_hits()
+            elif self.docs:
+                b.visible = False
+            else:
+                self.info("^X quits, ^W searches the files, ^F finds a file by name")
+        elif key in ("C-w", "F6"):
+            self.search_files_prompt()
+        elif key == "C-f":
+            self.find_file()
+        elif key == "C-r" or key == "F5":
+            b.refresh()
+            self.info("Reloaded the directory")
+        elif key in ("C-x", "F2"):
+            self.quit_all()
+        elif key.startswith("Paste:"):
+            b.filter.handle(key)
+            b.selected = 0
+        elif is_printable(key) and key != "\t" or key in ("Backspace", "C-h", "M-Backspace", "C-u"):
+            before = b.filter.text
+            b.filter.handle(key)
+            if b.filter.text != before:
+                b.selected = 0
+                b.scroll = 0
+        else:
+            name = self.lookup(key)
+            if name is not None and cmds.COMMANDS[name].overview and name not in ("save", "write-out", "apply"):
+                self.run(name)
+                self.last_command = name
+            else:
+                self.info("Enter opens, type to filter, ^W searches the files, ^F finds a file, ^X quits")
+
+    def _browser_choose(self) -> None:
+        b = self.browser
+        item = b.current()
+        if item is None:
+            self.info("Nothing selected")
+        elif isinstance(item, project.Hit):
+            doc = self._browser_open(os.path.join(b.root, item.path), item.row + 1, item.col + 1)
+            self.last_search = b.query
+            self.search_highlight_off = False
+            self.highlight_match = ((item.row, item.col), (item.row, item.end))
+            doc.center_pending = True
+        elif item.is_dir:
+            b.enter(item.path)
+        else:
+            self._browser_open(item.path)
+
+    def search_files_prompt(self) -> None:
+        if self.commit is not None:
+            self.error("Leave the commit editor first (^X)")
+            return
+        if self.browser is None:
+            self.browser = Browser(self.cwd)
+        b = self.browser
+        where = b.rel_dir if b.visible and b.rel_dir else "project"
+        opts = self._search_options(lambda: self._search_label(f"Search in {where}"))
+        self.ask(self._search_label(f"Search in {where}"), self.search_files, initial="",
+                 history=self.search_history, options=opts)
+
+    def search_files(self, query: str) -> None:
+        """Search every file of the shown directory (or the whole project) for `query`."""
+        if self.commit is not None:
+            self.error("Leave the commit editor first (^X)")
+            return
+        query = query or self.last_search
+        if not query:
+            self.info("Cancelled")
+            return
+        pattern = self._pattern(query)
+        if pattern is None:
+            return
+        if self.browser is None:
+            self.browser = Browser(self.cwd)
+        b = self.browser
+        base = b.dir if b.visible else b.root
+        self.last_search = query
+
+        def work():
+            return project.search_files(base, project.list_files(base), pattern)
+
+        def done(hits):
+            prefix = os.path.relpath(base, b.root)
+            for h in hits:
+                h.path = os.path.normpath(os.path.join(prefix, h.path))
+            b.show_hits(query, hits)
+            b.visible = True
+            files = len({h.path for h in hits})
+            more = "+" if len(hits) >= project.MAX_HITS else ""
+            if hits:
+                self.info(f"{len(hits)}{more} matching line{'s' if len(hits) != 1 else ''} in {files} file{'s' if files != 1 else ''}")
+            else:
+                self.info(f'"{query}" not found')
+
+        self.run_task(f'Searching for "{query}"', work, done)
+
+    def find_file(self) -> None:
+        """Pick any file below the project root by (fuzzy) name."""
+        if self.commit is not None:
+            self.error("Leave the commit editor first (^X)")
+            return
+        root = self.browser.root if self.browser is not None else self.cwd
+        files = project.list_files(root)
+        if not files:
+            self.info("No files found")
+            return
+        items = [PickerItem(f, "", f, "", os.path.basename(f)) for f in files]
+
+        def chosen(item, _text):
+            if item is not None:
+                self._browser_open(os.path.join(root, item.value))
+
+        self.overlay = Picker("Find file", items, chosen, placeholder="type part of a file name")
 
     # --------------------------------------------------------------- commit
     def open_commit(self, rev: str) -> None:

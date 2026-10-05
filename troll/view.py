@@ -7,12 +7,14 @@ overlays, scrolling) are testable as plain data.
 
 from __future__ import annotations
 
+import os
 import re
 import time
 from dataclasses import dataclass
 
 from . import __version__
 from .commit_session import STATUS_NAMES
+from .project import Entry
 from .prompt import Choice, HelpScreen, Picker, Prompt
 from .settings_screen import SettingsScreen
 from .textutil import (
@@ -672,6 +674,87 @@ def overview_rows(ed, height: int, width: int) -> list[list[Seg]]:
     return rows
 
 
+# ------------------------------------------------------- directory overview
+
+
+def browser_rows(ed, height: int, width: int) -> tuple[list[list[Seg]], tuple[int, int]]:
+    """IDE mode: the shown directory (or search results), a filter line and the entries."""
+    b = ed.browser
+    items = b.items()
+    rows: list[list[Seg]] = []
+    rb = RowBuilder(width)
+    if b.hits is None:
+        name = os.path.basename(b.root) + "/" + (b.rel_dir + "/" if b.rel_dir else "")
+        rb.add(" " + truncate_left(name, max(1, width - 2)), "heading")
+        count = f"{len(b.entries)} entr{'ies' if len(b.entries) != 1 else 'y'} "
+    else:
+        rb.add(f' Search results for "{b.query}"', "heading")
+        files = len({h.path for h in b.hits})
+        count = f"{len(b.hits)} line{'s' if len(b.hits) != 1 else ''} in {files} file{'s' if files != 1 else ''} "
+    if rb.used + _w(count) < width:
+        rb.add(" " * (width - rb.used - _w(count)), "text")
+        rb.add(count, "comment")
+    rows.append(rb.row())
+
+    rb = RowBuilder(width)
+    rb.add(" › ", "palette.prompt", "palette")
+    if b.filter.text:
+        rb.add(b.filter.text, "palette.input", "palette")
+    else:
+        back = "Esc back to the list" if b.hits is not None else "^W search in files"
+        rb.add(f"type to filter · Enter open · ← back · {back} · ^F find file", "palette.placeholder", "palette")
+    rb.pad("palette", "palette")
+    rows.append(rb.row())
+    cursor = (1, min(width - 1, 3 + _w(b.filter.text[: b.filter.cursor])))
+
+    list_h = max(1, height - len(rows))
+    b.selected = max(0, min(b.selected, max(0, len(items) - 1)))
+    if b.selected < b.scroll:
+        b.scroll = b.selected
+    elif b.selected >= b.scroll + list_h:
+        b.scroll = b.selected - list_h + 1
+    b.scroll = max(0, min(b.scroll, max(0, len(items) - list_h)))
+    if not items:
+        rb = RowBuilder(width)
+        rb.add("   no matches" if b.filter.text or b.hits is not None else "   (empty directory)", "comment")
+        rows.append(rb.row())
+    open_docs = {os.path.abspath(d.path): d for d in ed.docs if d.path}
+    loc_w = 0
+    if b.hits is not None:
+        loc_w = min(max([_w(f"{h.path}:{h.row + 1}") for h in items[b.scroll : b.scroll + list_h]] + [0]),
+                    max(10, width // 2))
+    for i in range(b.scroll, min(len(items), b.scroll + list_h)):
+        item = items[i]
+        sel = i == b.selected
+        bg = "selection" if sel else None
+        rb = RowBuilder(width)
+        rb.add(" ▸ " if sel else "   ", "label", bg)
+        if isinstance(item, Entry):
+            if item.is_dir:
+                rb.add(item.name + "/", "keyword", bg)
+            else:
+                rb.add(item.name, "text", bg)
+                doc = open_docs.get(os.path.abspath(item.path))
+                if doc is not None:
+                    rb.add("  modified" if doc.modified else "  open", "gutter.edit", bg)
+        else:
+            loc = truncate_left(f"{item.path}:{item.row + 1}", loc_w)
+            rb.add(loc + " " * (loc_w - _w(loc) + 2), "comment", bg)
+            lead = len(item.text) - len(item.text.lstrip())
+            text = item.text[lead:]
+            s, e = item.col - lead, item.end - lead
+            fg = ["text"] * len(text)
+            cell_bg = [None] * len(text)
+            for k in range(max(0, s), min(e, len(text))):
+                cell_bg[k] = "match.other"
+            emit_cells(text, fg, cell_bg, rb, max(0, width - rb.used), 0, ed.settings.tab_size, False, bg)
+        rb.pad("text", bg)
+        rows.append(rb.row())
+    while len(rows) < height:
+        rows.append([])
+    return rows[:height], cursor
+
+
 # ------------------------------------------------------------- overlays
 
 
@@ -831,6 +914,10 @@ def title_row(ed, width: int) -> list[Seg]:
             pos = idx.index(s.current) + 1 if s.current in idx else 0
             a, r = s.stats(e)
             right = f"[{pos}/{len(idx)}] +{a} -{r}" + (" · edited" if e.changed else "")
+    elif ed.in_browser:
+        left = f" troll {__version__} "
+        center = ed.browser.dir
+        right = f"{len(ed.docs)} open" if ed.docs else ""
     else:
         left = f" troll {__version__} "
         center = doc.name if doc else ""
@@ -895,7 +982,7 @@ def status_row(ed, width: int) -> tuple[list[Seg], int | None]:
         rb.add(" " * pad, "text", None)
         rb.add(text, "status.error" if ed.message.kind == "error" else "status.info", None)
     doc = ed.doc
-    if ed.settings.show_position and doc is not None and ed.overlay is None and not ed.in_overview:
+    if ed.settings.show_position and doc is not None and ed.overlay is None and not ed.in_overview and not ed.in_browser:
         r, c = doc.cursor
         pos = f" line {r + 1}/{len(doc.lines)}, col {c + 1} "
         if rb.used + _w(pos) <= width:
@@ -919,6 +1006,10 @@ HELP_COMMIT_FILE = [
 HELP_OVERVIEW = [
     ("Enter", "Open"), ("^S", "Rewrite Commit"), ("↑↓", "Select"), ("M->", "Next File"), ("^T", "Commands"),
     ("^X", "Leave"), ("^G", "Help"), ("m", "Message"), ("M-<", "Prev File"), ("", ""),
+]
+HELP_BROWSER = [
+    ("Enter", "Open"), ("^W", "Search Files"), ("↑↓", "Select"), ("^T", "Commands"), ("^G", "Help"),
+    ("^X", "Quit"), ("^F", "Find File"), ("←", "Up / Back"), ("Esc", "Back to File"), ("^R", "Reload"),
 ]
 HELP_SEARCH = [
     ("^G", "Help"), ("M-C", "Case Sens"), ("M-R", "Reg.exp."), ("M-B", "Backwards"), ("↑", "History"),
@@ -946,6 +1037,8 @@ def help_items(ed) -> list[tuple[str, str]]:
         return HELP_SEARCH if ed.prompt.options else HELP_PROMPT
     if ed.in_overview:
         return HELP_OVERVIEW
+    if ed.in_browser:
+        return HELP_BROWSER
     if ed.commit is not None:
         return HELP_COMMIT_FILE
     return HELP_NORMAL
@@ -992,6 +1085,8 @@ def build_frame(ed, height: int, width: int) -> Frame:
         body, settings_cursor = settings_rows(ed.overlay, ed, body_h, width)
     elif ed.in_overview:
         body = overview_rows(ed, body_h, width)
+    elif ed.in_browser:
+        body, cursor = browser_rows(ed, body_h, width)
     elif ed.doc is not None and ed.definition is not None and panel_width(width):
         pw = panel_width(width)
         left_w = width - pw - 1

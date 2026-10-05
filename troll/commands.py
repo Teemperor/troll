@@ -265,6 +265,27 @@ def _buffers(ed, args):
     ed.buffer_picker()
 
 
+@command("browse", "Show the directory overview (IDE mode: type to filter, ^W searches, ^F finds a file)",
+         keys=("M-o",), needs_doc=False, aliases=("explorer", "project", "dir"), category="File")
+def _browse(ed, args):
+    ed.show_browser()
+
+
+@command("find-file", "Open any file of the project by (part of) its name", needs_doc=False, overview=True,
+         aliases=("goto-file", "ff"), category="File")
+def _find_file(ed, args):
+    ed.find_file()
+
+
+@command("search-files", "Search all files of the project; matches are listed in the directory overview",
+         args="TEXT", prompt=None, needs_doc=False, aliases=("grep", "search-project", "rg"), category="Search")
+def _search_files(ed, args):
+    if args:
+        ed.search_files(args)
+    else:
+        ed.search_files_prompt()
+
+
 @command("quit", "Quit, asking about each unsaved buffer", needs_doc=False, aliases=("q",), overview=True,
          category="File")
 def _quit(ed, args):
@@ -908,6 +929,13 @@ You can also type full commands there, for example:
 
     goto 120:4        set tabsize 2       lang rust          commit HEAD~3
     s/foo/bar/g       !sort               /needle            justify 72
+
+IDE MODE
+  `troll DIR` opens a directory overview instead of a file. Enter opens a file or a
+  directory, Left/Backspace goes up, typing filters the list. ^W searches every file
+  below the shown directory and lists the matching lines (Enter jumps there, M-W finds
+  the next match in that file). ^F finds a file by name. Closing a file (^X) returns
+  to the overview; M-O shows it without closing, Esc there goes back to the file.
 
 EDITING A COMMIT
   Start with `troll --commit REV` (or `git troll REV`, or the `commit` command).
