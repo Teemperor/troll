@@ -8,7 +8,7 @@ import os
 import signal
 import sys
 
-from ..textutil import char_width
+from ..textutil import text_width
 from ..view import build_frame
 from . import theme
 from .keys import KeyDecoder
@@ -90,7 +90,7 @@ class Painter:
                     scr.addstr(y, x, text, self.attr(fg, bg))
                 except curses.error:
                     pass  # writing the bottom-right cell raises; harmless
-                x += sum(char_width(c) for c in text)
+                x += text_width(text)
         if frame.cursor is not None:
             try:
                 curses.curs_set(1)

@@ -14,6 +14,8 @@ BRACKET_PAIRS = {"(": ")", "[": "]", "{": "}", ")": "(", "]": "[", "}": "{"}
 def char_width(ch: str) -> int:
     """Number of terminal cells used to display a (non-tab) character."""
     o = ord(ch)
+    if 32 <= o < 127:
+        return 1
     if o < 32 or o == 127:
         return 2  # rendered as ^X
     if unicodedata.combining(ch):
@@ -21,6 +23,13 @@ def char_width(ch: str) -> int:
     if unicodedata.east_asian_width(ch) in ("W", "F"):
         return 2
     return 1
+
+
+def text_width(text: str) -> int:
+    """Number of terminal cells used to display `text` (no tabs)."""
+    if text.isascii() and text.isprintable():  # the common case, much faster
+        return len(text)
+    return sum(char_width(c) for c in text)
 
 
 def char_display(ch: str, col: int, tab_size: int) -> str:

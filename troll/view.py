@@ -25,6 +25,7 @@ from .textutil import (
     index_at_display_col,
     leading_ws,
     row_of,
+    text_width,
     word_at,
     wrap_starts,
 )
@@ -44,8 +45,7 @@ class Frame:
         return "\n".join("".join(seg[0] for seg in row) for row in self.rows)
 
 
-def _w(text: str) -> int:
-    return sum(char_width(c) for c in text)
+_w = text_width
 
 
 def fit(text: str, width: int) -> str:
@@ -79,9 +79,11 @@ class RowBuilder:
         if not text or self.used >= self.width:
             return
         room = self.width - self.used
-        if _w(text) > room:
+        w = _w(text)
+        if w > room:
             text = fit(text, room)
-        self.used += _w(text)
+            w = _w(text)
+        self.used += w
         if self.segs and self.segs[-1][1] == fg and self.segs[-1][2] == bg:
             self.segs[-1] = (self.segs[-1][0] + text, fg, bg)
         else:
@@ -290,6 +292,8 @@ def emit_cells(line: str, fg: list[str], bg: list[str | None], rb: RowBuilder, w
     """
     col = 0
     lead = len(leading_ws(line)) if indent_guides else 0
+    run: list[str] = []  # consecutive cells with the same style, added in one go
+    run_style: tuple[str, str | None] | None = None
     for i in range(min(len(line), len(fg))):
         ch = line[i]
         disp = char_display(ch, col, tab)
@@ -313,11 +317,18 @@ def emit_cells(line: str, fg: list[str], bg: list[str | None], rb: RowBuilder, w
             continue
         if start < left:
             disp = " " * (col - left)
-        if col > left + width:
+        clipped = col > left + width
+        if clipped:
             disp = " " * max(0, left + width - start)
-            rb.add(disp, style, cell_bg)
+        if (style, cell_bg) != run_style:
+            if run:
+                rb.add("".join(run), *run_style)
+            run, run_style = [], (style, cell_bg)
+        run.append(disp)
+        if clipped:
             break
-        rb.add(disp, style, cell_bg)
+    if run:
+        rb.add("".join(run), *run_style)
     if guide is not None and col <= guide < left + width:
         rb.add(" " * (guide - max(col, left)), "text", base_bg)
         rb.add(" ", "text", "guide")
