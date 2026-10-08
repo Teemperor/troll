@@ -6,7 +6,7 @@ same way as the `set` command (see Editor.option_targets).
 
 from __future__ import annotations
 
-from .prompt import LineEdit
+from .prompt import LineEdit, Picker, PickerItem
 from .settings import OPTIONS, OptionInfo, Settings
 
 DEFAULTS = Settings()
@@ -21,6 +21,7 @@ class SettingsScreen:
         self.scroll = 0
         self.height = 20
         self.editing: LineEdit | None = None  # number being typed in
+        self.dropdown: Picker | None = None  # choices of a `listed` option
         self.error: str | None = None
         self.done = False
 
@@ -49,7 +50,13 @@ class SettingsScreen:
         v = self.value(info)
         if isinstance(v, bool):
             return "on" if v else "off"
+        if self.is_text(info) and not v:
+            return "(empty)"
         return str(v)
+
+    def is_text(self, info: OptionInfo) -> bool:
+        """A free-form string (typed in, not cycled through choices)."""
+        return isinstance(self.value(info), str) and not info.choices
 
     def set(self, info: OptionInfo, value) -> None:
         for s in self.ed.option_targets(info.key):
@@ -75,6 +82,10 @@ class SettingsScreen:
     def _commit_number(self) -> None:
         info = self.current
         text = self.editing.text.strip()
+        if self.is_text(info):
+            self.set(info, text)
+            self.editing = None
+            return
         try:
             n = int(text)
         except ValueError:
@@ -86,8 +97,32 @@ class SettingsScreen:
         self.set(info, n)
         self.editing = None
 
+    def open_dropdown(self, choices: list[str]) -> None:
+        """Pick the current option's value from `choices` (typing one that isn't listed works too)."""
+        info = self.current
+        value = self.value(info)
+
+        def chosen(item, text):
+            self.set(info, item.value if item is not None else text.strip())
+
+        items = [PickerItem("(auto)", "the default", "")]
+        items += [PickerItem(c, "current" if c == value else "", c) for c in sorted(choices)]
+        p = Picker(info.label, items, chosen, allow_free_text=True, placeholder="type to filter")
+        p.selected = next((i for i, it in enumerate(items) if it.value == value), 0)
+        self.dropdown = p
+
+    def choices_failed(self, error: str) -> None:
+        """The choices couldn't be fetched: type the value in instead."""
+        self.error = f"{error} (type the value instead)"
+        self.editing = LineEdit(str(self.value(self.current)))
+
     # ---------------------------------------------------------------- keys
     def handle(self, key: str) -> None:
+        if self.dropdown is not None:
+            self.dropdown.handle(key)
+            if self.dropdown.done:
+                self.dropdown = None
+            return
         if self.editing is not None:
             if key == "Enter":
                 self._commit_number()
@@ -110,7 +145,10 @@ class SettingsScreen:
         elif key in ("PageDown", "C-v", "End", "M-/"):
             self.selected = n - 1
         elif key in ("Enter", " "):
-            if is_number:
+            if self.current.listed:
+                self.error = None
+                self.ed.option_dropdown(self)
+            elif is_number or self.is_text(self.current):
                 self.editing = LineEdit(str(self.value(self.current)))
             else:
                 self.change(1)

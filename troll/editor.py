@@ -17,6 +17,7 @@ from dataclasses import dataclass
 from . import commands as cmds
 from . import config, gitcommit, languages, project
 from . import definitions as defs
+from . import explain
 from .commit_session import CommitSession
 from .diffmodel import diff_opcodes
 from .document import Document, ReadOnlyError, decode
@@ -45,6 +46,17 @@ class Task:
     thread: threading.Thread
     done: Callable[[object], None]  # called with the result, on the main thread
     result: object = None
+    error: BaseException | None = None
+
+
+@dataclass
+class Job:
+    """A what-is-this request running in a background thread. Unlike a `Task`
+    the editor keeps working meanwhile; `poll_jobs` picks up the answer."""
+    key: tuple
+    tooltip: explain.Tooltip
+    thread: threading.Thread
+    result: str | None = None
     error: BaseException | None = None
 
 
@@ -78,6 +90,10 @@ class Editor:
         self.panel_x: int | None = None  # screen column where that panel starts (set by build_frame)
         self.jump_stack: list[tuple[Document, tuple[int, int]]] = []  # for jump-back
         self.task: Task | None = None
+        self.tooltip: explain.Tooltip | None = None  # what-is-this answer drawn at its token
+        self.explanations: dict[tuple, str] = {}  # (file, row, token, line text) -> answer
+        self.jobs: list[Job] = []
+        self.llm: explain.Chat | None = None  # tests put a fake client here
         self._pasting = False
         self._paste: list[str] = []
         self.keymap = cmds.build_keymap()
@@ -212,6 +228,9 @@ class Editor:
         self.message = None if self.prompt is None else self.message
         self.highlight_match = None if self.prompt is None else self.highlight_match
         self._guarded(self._dispatch, key)
+        t = self.tooltip
+        if t is not None and t.doc.buffer.version != t.version:
+            self.tooltip = None  # the text it explains changed
 
     def _guarded(self, fn, *args) -> None:
         """Run `fn`, turning errors into status messages."""
@@ -227,10 +246,11 @@ class Editor:
             self.error(f"Internal error: {type(e).__name__}: {e}")
 
     def keys(self, *keys: str) -> None:
-        """Feed key names (handy for tests and macros). Waits for tasks they start."""
+        """Feed key names (handy for tests and macros). Waits for tasks and jobs they start."""
         for k in keys:
             self.handle_key(k)
             self.poll_task(wait=True)
+            self.poll_jobs(wait=True)
 
     # ----------------------------------------------------------------- tasks
     def run_task(self, label: str, work: Callable[[], object], done: Callable[[object], None]) -> None:
@@ -291,6 +311,9 @@ class Editor:
             return
         if self.in_browser:
             self._browser_key(key)
+            return
+        if key == "Esc" and self.tooltip is not None:
+            self.tooltip = None
             return
         if key == "Esc" and self.definition is not None:
             self.definition = None
@@ -403,6 +426,33 @@ class Editor:
         if self.doc is not None:
             targets.append(self.doc.settings)
         return targets
+
+    def option_choices(self, key: str) -> list[str]:
+        """Values to pick from for a `listed` option (may ask a server: run it as a task)."""
+        if key == "ai_model":
+            s = self.settings
+            return explain.Client(s.ai_url, "", os.environ.get("OPENAI_API_KEY"), timeout=30).list_models()
+        raise ValueError(f"{key} has no list of values")
+
+    def option_dropdown(self, sc: SettingsScreen) -> None:
+        key = sc.current.key
+
+        def work():
+            try:
+                return self.option_choices(key)
+            except explain.ExplainError as e:
+                return e
+
+        def done(result):
+            if isinstance(result, explain.ExplainError):
+                sc.choices_failed(str(result))
+            elif not result:
+                sc.choices_failed("The server lists no models")
+            else:
+                sc.open_dropdown(result)
+
+        label = f"Fetching models from {self.settings.ai_url}" if key == "ai_model" else f"Listing {key}"
+        self.run_task(label, work, done)
 
     def show_settings(self) -> None:
         self.overlay = SettingsScreen(self)
@@ -1397,6 +1447,9 @@ class Editor:
         self.info("Esc closes the definition panel, M-PgUp/M-PgDn scroll it")
 
     def scroll_definition(self, delta: int) -> None:
+        if self.tooltip is not None:  # the tooltip is on top, so it scrolls first
+            self.tooltip.scroll = max(0, self.tooltip.scroll + delta)  # view.py clamps the bottom
+            return
         panel = self.definition
         if panel is None:
             self.info("No definition is shown")
@@ -1412,6 +1465,80 @@ class Editor:
                 self.info("Jumped back")
                 return
         self.info("No earlier position to jump back to")
+
+    # ---------------------------------------------------------- what-is-this
+    def _project_root(self, doc: Document) -> str:
+        if self.commit is not None:
+            return self.commit.repo
+        if self.browser is not None:
+            return self.browser.root
+        start = os.path.dirname(doc.path) if doc.path else self.cwd
+        try:
+            return gitcommit.repo_root(start)
+        except (gitcommit.GitError, OSError):
+            return start
+
+    def what_is_this(self) -> None:
+        """Ask the model what the token under the cursor is; the answer shows in a tooltip."""
+        doc = self.doc
+        tok = explain.token_at(doc.lines, doc.lang, *doc.cursor, doc.selection())
+        if tok is None:
+            self.error("No token under the cursor")
+            return
+        here = self._doc_source(doc)
+        key = (doc.path or here.label, tok.row, tok.text, doc.lines[tok.row])
+        tip = explain.Tooltip(doc, tok, doc.buffer.version)
+        self.tooltip = tip
+        if key in self.explanations:
+            tip.text = self.explanations[key]
+            self.info("Cached answer (Esc closes it)")
+            return
+        s = self.settings
+        q = explain.Question(tok, here.label, doc.lang.name, list(doc.lines), s.ai_context)
+        # the worker only sees copies: the buffers may change while it runs
+        sources = [defs.Source(here.label, q.lines, doc.lang, path=doc.path)]
+        sources += [defs.Source(self._label(d.path, d.name), list(d.lines), d.lang, path=d.path)
+                    for d in self.all_docs() if d is not doc]
+        tools = explain.ProjectTools(self._project_root(doc), sources)
+        client = self.llm or explain.Client(s.ai_url, s.ai_model, os.environ.get("OPENAI_API_KEY"))
+        tip.model = s.ai_model or "the model"
+
+        def target():
+            try:
+                job.result = explain.explain(q, client, tools)
+            except BaseException as e:  # reported on the main thread
+                job.error = e
+
+        job = Job(key, tip, threading.Thread(target=target, name="what-is-this", daemon=True))
+        self.jobs.append(job)
+        job.thread.start()
+        self.info(f"Asking what '{tok.text}' is (Esc closes the tooltip)")
+
+    @property
+    def busy(self) -> bool:
+        """Background jobs are running (the screen should keep refreshing)."""
+        return bool(self.jobs)
+
+    def poll_jobs(self, wait: bool = False) -> bool:
+        """Pick up finished what-is-this answers. True if one arrived."""
+        arrived = False
+        for job in list(self.jobs):
+            job.thread.join(None if wait else 0)
+            if job.thread.is_alive():
+                continue
+            self.jobs.remove(job)
+            arrived = True
+            tip = job.tooltip
+            if job.error is None:
+                self.explanations[job.key] = job.result
+                tip.text = job.result
+            elif isinstance(job.error, (explain.ExplainError, OSError)):
+                tip.error = str(job.error)
+            elif self.raise_errors:
+                raise job.error
+            else:
+                tip.error = f"Internal error: {type(job.error).__name__}: {job.error}"
+        return arrived
 
     def revert_hunk(self) -> None:
         """Drop the commit's change under the cursor (restore the pre-commit text)."""

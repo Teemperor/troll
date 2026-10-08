@@ -819,6 +819,12 @@ def _jump_back(ed, args):
     ed.jump_back()
 
 
+@command("what-is-this", "Ask the AI model what the token under the cursor (or the selection) is for",
+         keys=("M-h",), category="Info", aliases=("explain", "wit", "hover", "ai"))
+def _what_is_this(ed, args):
+    ed.what_is_this()
+
+
 # ======================================================================
 # Commit editing
 # ======================================================================
@@ -962,6 +968,13 @@ DEFINITIONS (LLVM IR, Python, C/C++)
   it in a panel on the right (Esc closes it, M-PgUp/M-PgDn scroll). In LLVM IR this
   covers %values, labels, @globals, #attributes and !metadata (with the nodes it refers
   to); for Python and C++ it's a best guess that also looks in imported/included files.
+
+WHAT IS THIS? (AI)
+  M-H asks an OpenAI-compatible model ('set ai_url', 'set ai_model', key in $OPENAI_API_KEY)
+  what the token under the cursor is, sending 'ai_context' lines around it. The model can
+  ask for definitions, project searches and file contents before answering. The answer
+  appears in a tooltip at the token (Esc closes it, M-PgUp/M-PgDn scroll it); answers are
+  remembered per token and line for the session.
 
 SMART FORMATTING
   Enter keeps indentation, indents after ':' / '{' and continues comments and lists

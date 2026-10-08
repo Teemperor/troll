@@ -13,6 +13,7 @@ import time
 from dataclasses import dataclass
 
 from . import __version__
+from . import explain
 from .commit_session import STATUS_NAMES
 from .project import context_ranges
 from .prompt import Choice, HelpScreen, Picker, Prompt
@@ -246,6 +247,10 @@ def _line_styles(ed, doc, row: int, upto: int, marks: Marks) -> tuple[list[str],
         if mr == row:
             for i in range(ms, min(me, n)):
                 bg[i] = "match"
+    tip = ed.tooltip
+    if tip is not None and tip.doc is doc and tip.token.row == row:
+        for i in range(tip.token.start, min(tip.token.end, n)):
+            bg[i] = "tooltip.token"
     for pattern, style in ((marks.search, "match.other"), (marks.word, "occurrence")):
         if pattern is None:
             continue
@@ -608,6 +613,128 @@ def join_columns(left: list[Seg], left_w: int, right: list[Seg], width: int) -> 
     return rb.row()
 
 
+# ------------------------------------------------------------- tooltip
+
+
+def _cells(row: list[Seg], a: int, b: int) -> list[Seg]:
+    """The part of `row` covering display columns a..b, padded with blanks (a
+    wide character cut in half becomes blanks)."""
+    out = RowBuilder(max(0, b - a))
+    x = 0
+    for text, fg, bg in row:
+        for ch in text:
+            if x >= b:
+                break
+            w = char_width(ch)
+            if x >= a and x + w <= b:
+                out.add(ch, fg, bg)
+            elif x + w > a:
+                out.add(" " * (min(b, x + w) - max(a, x)), fg, bg)
+            x += w
+    out.pad()
+    return out.row()
+
+
+def splice(row: list[Seg], x: int, new: list[Seg], width: int) -> list[Seg]:
+    """`row` with `new` drawn over it from display column `x`."""
+    end = min(width, x + sum(_w(seg[0]) for seg in new))
+    rb = RowBuilder(width)
+    for seg in _cells(row, 0, x) + new + _cells(row, end, width):
+        rb.add(*seg)
+    return rb.row()
+
+
+def _border(width: int, left: str, right: str, joint: int | None, joint_ch: str, hint: str) -> list[Seg]:
+    """A box border `width` cells wide; the connector meets it at `joint`, the hint
+    goes on the other side."""
+    inner = width - 2
+    cells = [("─", "tooltip.border")] * inner
+    if hint and _w(hint) + 4 <= inner:
+        start = 1 if joint is not None and joint > inner // 2 else inner - _w(hint) - 1
+        cells[start:start + len(hint)] = [(ch, "tooltip.hint") for ch in hint]
+    if joint is not None and 0 <= joint < inner:
+        cells[joint] = (joint_ch, "tooltip.border")
+    rb = RowBuilder(width)
+    rb.add(left, "tooltip.border", "tooltip")
+    for ch, style in cells:
+        rb.add(ch, style, "tooltip")
+    rb.add(right, "tooltip.border", "tooltip")
+    return rb.row()
+
+
+def tooltip_overlay(ed, body: list[list[Seg]], height: int, width: int) -> list[list[Seg]]:
+    """Draw the what-is-this tooltip over the text, with a line from the token to the box."""
+    tip, doc = ed.tooltip, ed.doc
+    if tip is None or tip.doc is not doc or doc.buffer.version != tip.version or width < 16:
+        return body
+    tok = tip.token
+    line = doc.lines[tok.row]
+    dc = display_col(line, tok.start, doc.settings.tab_size)
+    anchor = None
+    for y in sorted(ed.click_map):  # with soft wrap: the last screen row starting before the token
+        row, left, text_x = ed.click_map[y]
+        if row == tok.row and left <= dc:
+            anchor = (y, text_x + dc - left)
+    if anchor is None or not 0 <= anchor[1] < width or anchor[0] >= height:
+        return body  # the token is out of view
+    y, x = anchor
+    text_x = ed.click_map[y][2]
+    px = min(width - 1, x + (max(1, min(_w(tok.text), width - x)) - 1) // 2)  # points at the middle
+
+    max_inner = min(72, width - 4)
+    shown_tok = tok.text if _w(tok.text) <= max_inner - 12 else tok.text[: max(1, max_inner - 13)] + "…"
+    content: list[explain.Styled] = [[(f"What is '{shown_tok}'?", "tooltip.title")], []]
+    if tip.error is not None:
+        content += [[(t, "tooltip.error") for t, _ in r] for r in explain.layout("⚠ " + tip.error, max_inner)]
+    elif tip.text is None:
+        spinner = SPINNER[int(time.monotonic() * 10) % len(SPINNER)]
+        content.append([(f"{spinner} asking {tip.model}…", "tooltip.hint")])
+    else:
+        content += explain.layout(tip.text, max_inner)
+    inner = min(max_inner, max(28, max(explain.row_width(r) for r in content)))
+    bw = inner + 4
+
+    below, above = height - y - 1, y
+    down = below >= min(len(content) + 3, 8) or below >= above
+    shown = min(len(content), (below if down else above) - 3)
+    if shown < 1:
+        return body
+    tip.scroll = max(0, min(tip.scroll, len(content) - shown))
+    more = len(content) - tip.scroll - shown
+    hint = f" ↓ {more} more: M-PgDn " if more else " M-PgUp " if tip.scroll else ""
+    lo = max(0, text_x - 1) if width - text_x + 1 >= bw else 0  # keep off the line numbers if it fits
+    bx = max(lo, min(px - 3, width - bw))
+    joint = max(1, min(px - bx, bw - 2)) - 1  # index among the border's inner cells
+    px = bx + 1 + joint
+
+    # the connector arrives at the top border from a token above, at the bottom one from below
+    box = [_border(bw, "╭", "╮", joint if down else None, "┴", "" if down else hint)]
+    for r in content[tip.scroll : tip.scroll + shown]:
+        cell = RowBuilder(inner)
+        for text, style in r:
+            cell.add(text, style, "tooltip")
+        cell.pad("tooltip.text", "tooltip")
+        rb = RowBuilder(bw)
+        rb.add("│ ", "tooltip.border", "tooltip")
+        for seg in cell.row():
+            rb.add(*seg)
+        rb.add(" │", "tooltip.border", "tooltip")
+        box.append(rb.row())
+    box.append(_border(bw, "╰", "╯", None if down else joint, "┬", hint if down else ""))
+
+    out = list(body) + [[] for _ in range(max(0, height - len(body)))]
+    connector = [("│", "tooltip.border", None)]
+    if down:
+        placed = [(y + 1, px, connector)] + [(y + 2 + i, bx, r) for i, r in enumerate(box)]
+    else:
+        top = y - 1 - len(box)
+        placed = [(top + i, bx, r) for i, r in enumerate(box)] + [(y - 1, px, connector)]
+    for row_y, col, segs in placed:
+        if 0 <= row_y < height:
+            out[row_y] = splice(out[row_y], col, segs, width)
+    return out
+
+
 # --------------------------------------------------------- commit overview
 
 
@@ -908,9 +1035,12 @@ def settings_rows(sc: SettingsScreen, ed, height: int, width: int) -> tuple[list
             cursor_col = rb.used + sc.editing.cursor
             rb.add(sc.editing.text or " ", "palette.input", "prompt")
             rb.add("]", "label", bg)
-            rb.add(f"  {info.minimum}-{info.maximum}, Enter to accept", "comment", bg)
+            hint = "Enter to accept" if sc.is_text(info) else f"{info.minimum}-{info.maximum}, Enter to accept"
+            rb.add(f"  {hint}", "comment", bg)
         elif isinstance(value, bool):
             rb.add("[x] on " if value else "[ ] off", changed, bg)
+        elif sc.is_text(info):
+            rb.add(sc.display(info), changed if value else "comment", bg)
         else:
             rb.add(f"‹ {sc.display(info)} ›", changed, bg)
         if not sc.is_default(info) and not (sel and sc.editing is not None):
@@ -948,7 +1078,25 @@ def settings_rows(sc: SettingsScreen, ed, height: int, width: int) -> tuple[list
     cursor = None
     if cursor_col is not None:
         cursor = (target - sc.scroll, min(width - 1, cursor_col))
+    if sc.dropdown is not None:
+        rows, cursor = _dropdown(sc.dropdown, rows, target - sc.scroll, 3 + label_w, list_h, width)
     return rows, cursor
+
+
+def _dropdown(p: Picker, rows: list[list[Seg]], sel_y: int, x: int, list_h: int, width: int):
+    """A picker drawn as a drop-down under (or, without room, over) row `sel_y`, from column `x`."""
+    longest = max((_w(it.label) for it in p.items), default=20)
+    w = min(max(40, 2 * (longest + 2) + 2), width)  # picker_rows gives labels up to half the width
+    x = max(0, min(x, width - w))
+    below, above = list_h - sel_y - 1, sel_y
+    room = below if below >= min(len(p.items) + 2, 8) or below >= above else above
+    drop, (cy, cx) = picker_rows(p, w, max(3, min(14, room)))
+    top = sel_y + 1 if room == below else max(0, sel_y - len(drop))
+    rows = list(rows)
+    for i, segs in enumerate(drop):
+        if top + i < len(rows):
+            rows[top + i] = splice(rows[top + i], x, segs, width)
+    return rows, (top + cy, x + cx)
 
 
 # ------------------------------------------------------------ bars
@@ -1081,6 +1229,7 @@ HELP_HELP = [("^X", "Close"), ("^Y", "Prev Page"), ("^V", "Next Page"), ("↑↓
 HELP_SETTINGS = [("↑↓", "Select"), ("Enter", "Change"), ("←→", "Adjust"), ("D", "Default"), ("S", "Save"),
                  ("Esc", "Close")]
 HELP_SETTINGS_EDIT = [("0-9", "Type a number"), ("Enter", "Accept"), ("Esc", "Cancel")]
+HELP_SETTINGS_TEXT = [("type", "Edit the text"), ("Enter", "Accept"), ("Esc", "Cancel")]
 
 
 def help_items(ed) -> list[tuple[str, str]]:
@@ -1089,7 +1238,11 @@ def help_items(ed) -> list[tuple[str, str]]:
     if isinstance(ed.overlay, HelpScreen):
         return HELP_HELP
     if isinstance(ed.overlay, SettingsScreen):
-        return HELP_SETTINGS_EDIT if ed.overlay.editing is not None else HELP_SETTINGS
+        if ed.overlay.dropdown is not None:
+            return HELP_PICKER
+        if ed.overlay.editing is not None:
+            return HELP_SETTINGS_TEXT if ed.overlay.is_text(ed.overlay.current) else HELP_SETTINGS_EDIT
+        return HELP_SETTINGS
     if isinstance(ed.prompt, Choice):
         items = [(keys[0].upper(), label) for keys, label, _ in ed.prompt.options]
         return items + [("^C", "Cancel")]
@@ -1151,11 +1304,13 @@ def build_frame(ed, height: int, width: int) -> Frame:
         pw = panel_width(width)
         left_w = width - pw - 1
         left, cursor = doc_rows(ed, ed.doc, body_h, left_w)
+        left = tooltip_overlay(ed, left, body_h, left_w)
         right = definition_rows(ed, ed.definition, body_h, pw, ed.doc.settings.tab_size)
         body = [join_columns(left[i] if i < len(left) else [], left_w, right[i], width) for i in range(body_h)]
         ed.panel_x = left_w + 1
     elif ed.doc is not None:
         body, cursor = doc_rows(ed, ed.doc, body_h, width)
+        body = tooltip_overlay(ed, body, body_h, width)
     else:
         body = [[] for _ in range(body_h)]
     if cursor is not None:

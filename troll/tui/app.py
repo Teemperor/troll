@@ -182,13 +182,14 @@ def _main(stdscr, editor) -> None:
             if editor.settings.mouse != mouse:
                 mouse = editor.settings.mouse
                 _set_mouse(mouse)
+            editor.poll_jobs()
             h, w = stdscr.getmaxyx()
             painter.paint(build_frame(editor, h, w))
             if editor.task is not None:  # animate the spinner until the task is done
                 read(0.1)  # input is ignored meanwhile
                 editor.poll_task()
                 continue
-            key = read(None)
+            key = read(0.1 if editor.busy else None)  # background jobs: keep repainting
             if key is None:
                 continue
             editor.handle_key(key)

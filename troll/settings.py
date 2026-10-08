@@ -42,6 +42,9 @@ class Settings:
     mouse: bool = False
     backup: bool = False
     remember_position: bool = False
+    ai_url: str = "http://localhost:11211/api/openai/v1"  # what-is-this: OpenAI-compatible API (key: $OPENAI_API_KEY)
+    ai_model: str = ""  # "" = the newest Claude Opus the server lists
+    ai_context: int = 30  # lines above and below the token sent with the question
 
     def copy(self) -> "Settings":
         return replace(self)
@@ -58,6 +61,7 @@ class OptionInfo:
     maximum: int = 999
     editor_wide: bool = False  # not per file (search flags, the help bar)
     all_files: bool = False  # applies to every open file at once (e.g. how commit diffs are shown)
+    listed: bool = False  # Enter picks from Editor.option_choices (e.g. the server's models) in a drop-down
 
 
 OPTIONS: tuple[OptionInfo, ...] = (
@@ -120,6 +124,14 @@ OPTIONS: tuple[OptionInfo, ...] = (
                "Commit editing", all_files=True),
     OptionInfo("fold_context", "Context lines", "Unchanged lines shown around each change when editing a commit",
                "Commit editing", maximum=50, all_files=True),
+    OptionInfo("ai_url", "AI server URL",
+               "OpenAI-compatible API that what-is-this asks (the key comes from $OPENAI_API_KEY)", "AI",
+               editor_wide=True),
+    OptionInfo("ai_model", "AI model",
+               "Model what-is-this uses; Enter picks from the server's (empty: newest Claude Opus)",
+               "AI", editor_wide=True, listed=True),
+    OptionInfo("ai_context", "AI context lines", "Lines above and below the token that what-is-this sends along",
+               "AI", minimum=0, maximum=500, editor_wide=True),
 )
 OPTION_INFO = {o.key: o for o in OPTIONS}
 
@@ -197,6 +209,11 @@ ALIASES = {
     "backups": "backup",
     "positionlog": "remember_position",
     "remember": "remember_position",
+    "aiurl": "ai_url",
+    "llmurl": "ai_url",
+    "aimodel": "ai_model",
+    "model": "ai_model",
+    "aicontext": "ai_context",
 }
 
 TRUE = {"1", "on", "yes", "true", "y"}
