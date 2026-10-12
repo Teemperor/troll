@@ -915,6 +915,7 @@ def _hit_rows(ed, hit, rng: tuple[int, int], sel: bool, loc_w: int, width: int) 
     texts = {r: (lines[r] if hit.lines else hit.text) for r in rows_}
     # drop the indentation the shown lines have in common, keeping their relative indent
     lead = min((len(t) - len(t.lstrip()) for t in texts.values() if t.strip()), default=0)
+    hl = ed.browser.highlighter(hit) if ed.settings.highlight else None
     out = []
     for r in rows_:
         text = texts[r][lead:]
@@ -927,7 +928,13 @@ def _hit_rows(ed, hit, rng: tuple[int, int], sel: bool, loc_w: int, width: int) 
             rb.add(loc + " " * (loc_w - _w(loc) + 2), "comment", bg)
         else:
             rb.add(f"{r + 1:>{loc_w}}  ", "gutter", bg)
-        fg = ["text" if is_hit else "comment"] * len(text)
+        fg = ["text"] * len(texts[r])
+        if hl is not None:
+            for s, e, token in hl.spans(r):
+                fg[s:e] = [token] * (min(e, len(fg)) - s)
+        elif not is_hit:
+            fg = ["comment"] * len(fg)
+        fg = fg[lead:]
         cell_bg = [None] * len(text)
         if is_hit:
             for k in range(max(0, hit.col - lead), min(hit.end - lead, len(text))):

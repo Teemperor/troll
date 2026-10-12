@@ -182,3 +182,22 @@ def test_context_keeps_the_selected_hit_visible(tmp_path):
         ed.keys("Down")
     text = build_frame(ed, 20, 80).text()
     assert "▸ f.txt:71  hit 7" in text
+
+
+def test_search_results_are_syntax_highlighted(tmp_path):
+    (tmp_path / "a.py").write_text('"""doc\nstill doc\n"""\ndef f():\n    return needle  # here\n')
+    ed = ide(tmp_path)
+    ed.settings.search_context = 3
+    ed.keys("C-w")
+    ed.type("needle")
+    ed.keys("Enter")
+    styles = {}
+    for row in build_frame(ed, 20, 80).rows:
+        for text, fg, _bg in row:
+            styles.setdefault(text.strip(), fg)
+    assert styles["def"] == "keyword" and styles["return"] == "keyword"  # context and hit line
+    assert styles["# here"] == "comment"
+    assert styles["still doc"] == "string"  # the multi-line state comes from the start of the file
+    ed.settings.highlight = False
+    styles = {text.strip(): fg for row in build_frame(ed, 20, 80).rows for text, fg, _bg in row}
+    assert "def" not in styles

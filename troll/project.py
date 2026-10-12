@@ -12,6 +12,9 @@ import re
 import subprocess
 from dataclasses import dataclass, field
 
+from .buffer import Buffer
+from .highlight import Highlighter
+from .languages import detect
 from .prompt import LineEdit, fuzzy_score
 
 HIDDEN = {".git", ".hg", ".svn"}  # never listed
@@ -140,6 +143,7 @@ class Browser:
         self.dir = self.root
         self.entries: list[Entry] = []
         self.hits: list[Hit] | None = None  # search results mode
+        self._highlighters: dict[str, tuple[list[str], Highlighter]] = {}  # path -> (hit.lines, highlighter)
         self.query = ""
         self.filter = LineEdit()
         self.selected = 0
@@ -213,9 +217,22 @@ class Browser:
     def show_hits(self, query: str, hits: list[Hit]) -> None:
         self.query = query
         self.hits = hits
+        self._highlighters = {}
         self._reset()
+
+    def highlighter(self, hit: Hit) -> Highlighter | None:
+        """Syntax highlighter for the file of `hit` (shared by all its hits)."""
+        if not hit.lines:
+            return None
+        cached = self._highlighters.get(hit.path)
+        if cached is None or cached[0] is not hit.lines:
+            lang = detect(hit.path, hit.lines[0])
+            cached = (hit.lines, Highlighter(Buffer("\n".join(hit.lines)), lang))
+            self._highlighters[hit.path] = cached
+        return cached[1]
 
     def close_hits(self) -> None:
         self.hits = None
+        self._highlighters = {}
         self._reset()
         self.refresh()
