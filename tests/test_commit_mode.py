@@ -459,3 +459,17 @@ def test_arrows_past_the_last_and_first_change_go_to_the_next_and_previous_file(
     assert ed.commit.current == 2 and ed.doc.cursor[0] == 2
     ed.keys("Up")
     assert ed.commit.current == 1 and ed.doc.cursor == (0, 0)  # back to docs.txt's last change
+
+
+def test_prev_change_lands_on_the_last_line_of_the_change(repo):
+    repo.commit("base", {"a.txt": BASE, "b.txt": BASE})
+    changed = BASE.replace("line 5\n", "new 5\nnew 6\nnew 7\n").replace("line 20\n", "new 20\nnew 21\n")
+    target = repo.commit("Edit", {"a.txt": changed, "b.txt": changed})
+    ed = open_editor(repo, target)
+    ed.open_entry(2)  # b.txt, opens at the first change
+    ed.keys("M-Down")
+    assert ed.doc.lines[ed.doc.cursor[0]] == "new 20"  # going down: the first line
+    ed.keys("M-Up")
+    assert ed.doc.lines[ed.doc.cursor[0]] == "new 7"  # going up: the last line of the previous change
+    ed.keys("M-Up")
+    assert ed.commit.current == 1 and ed.doc.lines[ed.doc.cursor[0]] == "new 21"  # a.txt's last change

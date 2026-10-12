@@ -1204,17 +1204,19 @@ class Editor:
             self.error("Change navigation is available when editing a commit")
             return
         starts = []  # the message has no changes of its own: go straight to the next file
+        ends = []  # last row of each change: going up lands there
         if doc.diff is not None:
             d = doc.diff.get(doc.buffer)
             starts = [min(s, len(doc.lines) - 1) for s, _e in d.hunks]
+            ends = [self._change_end(doc, s, e) for s, e in d.hunks]
         r = doc.cursor[0]
         if delta > 0:
-            later = [s for s in starts if s > r]
-            target = later[0] if later else None
+            later = [i for i, s in enumerate(starts) if s > r]
+            index = later[0] if later else None
         else:
-            earlier = [s for s in starts if s < r]
-            target = earlier[-1] if earlier else None
-        if target is None:
+            earlier = [i for i, e in enumerate(ends) if e < r]
+            index = earlier[-1] if earlier else None
+        if index is None:
             if self.commit is not None and len(self.commit.editable_indices()) > 1 and self.commit.step(delta):
                 if delta > 0:
                     self._jump_to_first_change()
@@ -1224,8 +1226,8 @@ class Editor:
                 return
             self.info("No more changes" if starts or doc.diff is None else "This file has no changes")
             return
-        doc.goto(target, 0)
-        self.info(f"Change {starts.index(target) + 1}/{len(starts)}")
+        doc.goto(starts[index] if delta > 0 else ends[index], 0)
+        self.info(f"Change {index + 1}/{len(starts)}")
 
     def move_line(self, n: int) -> None:
         """Up/Down; past the first/last line of a commit file, go on to the previous/next file's change."""
@@ -1243,7 +1245,15 @@ class Editor:
             return
         d = doc.diff.get(doc.buffer)
         if d.hunks:
-            doc.goto(min(d.hunks[-1][0], len(doc.lines) - 1), 0)
+            doc.goto(self._change_end(doc, *d.hunks[-1]), 0)
+
+    @staticmethod
+    def _change_end(doc, start: int, end: int) -> int:
+        """The last row of the change [start, end), not counting the "" after a final newline."""
+        last = min(max(end - 1, start), len(doc.lines) - 1)
+        if last > start and last == len(doc.lines) - 1 and doc.lines[last] == "":
+            last -= 1
+        return last
 
     def revert_edit(self) -> None:
         """Restore the commit's version of the edit under the cursor."""
