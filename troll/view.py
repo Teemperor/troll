@@ -14,6 +14,7 @@ from dataclasses import dataclass
 
 from . import __version__
 from . import explain
+from .blame import NOT_COMMITTED, CommitView
 from .commit_session import STATUS_NAMES
 from .project import context_ranges
 from .prompt import Choice, HelpScreen, Picker, Prompt
@@ -124,12 +125,15 @@ def number_label(doc, row: int, num_w: int) -> str:
 
 
 def gutter_width(doc) -> int:
-    """Width of what doc_rows draws before the text: line number, diff markers
-    (edited + added), then a single separating space."""
+    """Width of what doc_rows draws before the text: blame column, line number,
+    diff markers (edited + added), then a single separating space."""
     w = number_width(doc)
     if doc.diff is not None:
         w += 2
-    return w + 1 if w else 0
+    w = w + 1 if w else 0
+    if doc.blame is not None:
+        w += doc.blame.width + 1
+    return w
 
 
 def _item_height(doc, idx: int, text_width: int) -> int:
@@ -363,13 +367,22 @@ def _line_gutter(doc, diff, rb: RowBuilder, row: int, num_w: int, gw: int, first
     if not first:
         rb.add(" " * gw, "gutter", None)
         return
+    if doc.blame is not None:
+        b = doc.blame
+        sha = b.sha(row)
+        style = "gutter.edit" if sha == NOT_COMMITTED else \
+            "gutter.current" if sha is not None and sha == b.sha(doc.cursor[0]) else "comment"
+        label = b.label(row)
+        if _w(label) > b.width:
+            label = fit(label, b.width - 1).rstrip() + "…"
+        rb.add(fit(label, b.width) + " ", style, None)
     if num_w:
         rb.add(number_label(doc, row, num_w), "gutter.current" if row == doc.cursor[0] else "gutter", None)
     if diff is not None:
         edited = row in diff.edited or row in diff.edit_deletions
         rb.add("*" if edited else " ", "gutter.edit", None)
         rb.add("+" if row in diff.added else " ", "gutter.add", None)
-    if gw:
+    if num_w or diff is not None:
         rb.add(" ", "gutter", None)
 
 
@@ -1008,6 +1021,25 @@ def help_rows(h: HelpScreen, height: int, width: int) -> list[list[Seg]]:
     return rows
 
 
+def commit_view_rows(cv: CommitView, height: int, width: int, tab: int) -> list[list[Seg]]:
+    """The commit opened from blame mode: header, message and highlighted diff."""
+    cv.height = height
+    rows = []
+    for i in range(height):
+        rb = RowBuilder(width)
+        idx = cv.scroll + i
+        if idx < len(cv.lines):
+            text, spans, bg = cv.lines[idx]
+            fg = ["text"] * len(text)
+            for s_, e, token in spans:
+                fg[s_:e] = [token] * (min(e, len(fg)) - s_)
+            emit_cells(text, fg, [None] * len(text), rb, width, cv.left, tab, False, bg)
+            if bg:
+                rb.pad("text", bg)
+        rows.append(rb.row())
+    return rows
+
+
 def settings_rows(sc: SettingsScreen, ed, height: int, width: int) -> tuple[list[list[Seg]], tuple[int, int] | None]:
     """The settings panel: grouped options, the selected one's description at the bottom."""
     sc.height = height
@@ -1134,7 +1166,9 @@ def title_row(ed, width: int) -> list[Seg]:
         center = doc.name if doc else ""
         right = ""
         if doc is not None:
-            if doc.readonly:
+            if doc.blame is not None:
+                right = "[Blame]"
+            elif doc.readonly:
                 right = "[Read Only]"
             elif doc.modified:
                 right = "Modified"
@@ -1208,6 +1242,9 @@ HELP_NORMAL = [
     ("^X", "Exit"), ("^R", "Read File"), ("^\\", "Replace"), ("^U", "Paste"), ("^J", "Justify"),
     ("^_", "Go To Line"), ("M-E", "Redo"), ("M-6", "Copy"), ("M-W", "Next"), ("M-Q", "Previous"),
 ]
+HELP_BLAME = [("↑↓", "Select Line"), ("Enter", "Show Commit"), ("^_", "Go To Line"), ("Esc", "Leave Blame")]
+HELP_COMMIT_VIEW = [("Esc", "Back"), ("↑↓", "Scroll"), ("←→", "Scroll Sideways"), ("^Y", "Prev Page"),
+                    ("^V", "Next Page")]
 HELP_COMMIT_FILE = [
     ("^G", "Help"), ("^S", "Rewrite"), ("^W", "Where Is"), ("^K", "Cut"), ("^T", "Commands"),
     ("M-↓", "Next Change"), ("M-Z", "Fold"), ("M-U", "Undo"), ("M-3", "Comment"), ("M->", "Next File"),
@@ -1244,6 +1281,8 @@ def help_items(ed) -> list[tuple[str, str]]:
         return HELP_PICKER
     if isinstance(ed.overlay, HelpScreen):
         return HELP_HELP
+    if isinstance(ed.overlay, CommitView):
+        return HELP_COMMIT_VIEW
     if isinstance(ed.overlay, SettingsScreen):
         if ed.overlay.dropdown is not None:
             return HELP_PICKER
@@ -1261,6 +1300,8 @@ def help_items(ed) -> list[tuple[str, str]]:
         return HELP_BROWSER if ed.browser.hits is None else HELP_BROWSER_HITS
     if ed.commit is not None:
         return HELP_COMMIT_FILE
+    if ed.doc is not None and ed.doc.blame is not None:
+        return HELP_BLAME
     return HELP_NORMAL
 
 
@@ -1301,6 +1342,8 @@ def build_frame(ed, height: int, width: int) -> Frame:
     settings_cursor = None
     if isinstance(ed.overlay, HelpScreen):
         body = help_rows(ed.overlay, body_h, width)
+    elif isinstance(ed.overlay, CommitView):
+        body = commit_view_rows(ed.overlay, body_h, width, ed.doc.settings.tab_size if ed.doc else 4)
     elif isinstance(ed.overlay, SettingsScreen):
         body, settings_cursor = settings_rows(ed.overlay, ed, body_h, width)
     elif ed.in_overview:
@@ -1334,7 +1377,7 @@ def build_frame(ed, height: int, width: int) -> Frame:
     rows.append(status)
     if status_x is not None:
         cursor = (len(rows) - 1, status_x)
-    if isinstance(ed.overlay, (HelpScreen, SettingsScreen)) or ed.in_overview:
+    if isinstance(ed.overlay, (HelpScreen, SettingsScreen, CommitView)) or ed.in_overview:
         cursor = cursor if status_x is not None else None
     if settings_cursor is not None:
         cursor = (settings_cursor[0] + 1, settings_cursor[1])

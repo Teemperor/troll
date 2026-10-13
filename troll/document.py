@@ -80,6 +80,7 @@ class Document:
         self.highlighter = Highlighter(self.buffer, self.lang, first_line_limit=lambda: self.fill_width)
         self.original_lines = list(self.buffer.lines)
         self.diff: DiffState | None = None
+        self.blame = None  # blame.Blame while blame mode shows this document
         self._layout_key = None
         self._layout: list[Row] | None = None
         self._apply_language_defaults(detect_indentation)

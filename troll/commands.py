@@ -914,6 +914,12 @@ def _comment_hunk(ed, args):
     ed.comment_hunk()
 
 
+@command("blame", "Show next to each line the commit that introduced it; Enter on a line shows that commit "
+         "(message and diff), Esc leaves", category="Info", aliases=("annotate",))
+def _blame(ed, args):
+    ed.blame()
+
+
 @command("revert-file", "Discard all your edits to this file", category="Commit", commit_only=True)
 def _revert_file(ed, args):
     doc = ed.doc

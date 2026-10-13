@@ -14,6 +14,7 @@ import threading
 from collections.abc import Callable
 from dataclasses import dataclass
 
+from . import blame as blamemod
 from . import commands as cmds
 from . import config, gitcommit, languages, project
 from . import definitions as defs
@@ -312,6 +313,9 @@ class Editor:
         if self.in_browser:
             self._browser_key(key)
             return
+        if self.doc is not None and self.doc.blame is not None:
+            self._blame_key(key)
+            return
         if key == "Esc" and self.tooltip is not None:
             self.tooltip = None
             return
@@ -359,6 +363,9 @@ class Editor:
         kind, y, x = key.split(":")
         y, x = int(y), int(x)
         doc = self.doc
+        if isinstance(self.overlay, blamemod.CommitView) and kind != "Click":
+            self.overlay.handle(kind)
+            return
         if self.prompt is not None or self.overlay is not None or doc is None or self.in_overview or self.in_browser:
             return
         if self.definition is not None and self.panel_x is not None and x >= self.panel_x:
@@ -1228,6 +1235,71 @@ class Editor:
             return
         doc.goto(starts[index] if delta > 0 else ends[index], 0)
         self.info(f"Change {index + 1}/{len(starts)}")
+
+    # ----------------------------------------------------------------- blame
+    BLAME_MOVES = {"up", "down", "page-up", "page-down", "top", "bottom", "center", "goto"}
+
+    def blame(self) -> None:
+        """Toggle blame mode: each line shows the title of the commit that introduced it."""
+        doc = self.doc
+        if doc.blame is not None:
+            self.leave_blame()
+            return
+        if self.commit is not None:
+            self.error("Blame is not available while editing a commit")
+            return
+        if not doc.path:
+            self.error("Blame needs a file in a git repository")
+            return
+        path, data = doc.path, doc.to_bytes()
+
+        def done(result):
+            if self.doc is doc:
+                doc.blame = result
+                doc.mark = None
+                self.info("Blame: ↑↓ select a line, Enter shows its commit, Esc leaves")
+
+        self.run_task("Running git blame", lambda: blamemod.blame(path, data), done)
+
+    def leave_blame(self) -> None:
+        self.doc.blame = None
+        self.info("Left blame mode")
+
+    def _blame_key(self, key: str) -> None:
+        """In blame mode lines can only be selected; Enter shows the line's commit."""
+        if key in ("Esc", "C-c", "C-g", "C-x", "q"):
+            self.leave_blame()
+            return
+        if key == "Enter":
+            self.show_blame_commit()
+            return
+        name = self.lookup(key)
+        if name == "blame":
+            self.leave_blame()
+        elif name in self.BLAME_MOVES:
+            self.run(name)
+        else:
+            self.info("Blame mode: ↑↓ select a line, Enter shows its commit, Esc leaves")
+
+    def show_blame_commit(self) -> None:
+        b = self.doc.blame
+        sha = b.sha(self.doc.cursor[0])
+        if sha is None:
+            self.info("This line has no commit")
+            return
+        if sha == blamemod.NOT_COMMITTED:
+            self.info("This line is not committed yet")
+            return
+
+        def show(lines):
+            b.views[sha] = lines
+            self.overlay = blamemod.CommitView(f"commit {sha[:10]} · {b.subjects.get(sha, '')}", lines)
+
+        if sha in b.views:
+            show(b.views[sha])
+            return
+        repo = b.repo
+        self.run_task("Loading the commit", lambda: blamemod.style_show(blamemod.show_commit(repo, sha)), show)
 
     def move_line(self, n: int) -> None:
         """Up/Down; past the first/last line of a commit file, go on to the previous/next file's change."""
