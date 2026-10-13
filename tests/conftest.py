@@ -14,6 +14,7 @@ def user_files(monkeypatch, tmp_path):
     paths = {"config": tmp_path / "user" / "config", "state": tmp_path / "user" / "state"}
     monkeypatch.setenv("TROLL_CONFIG", str(paths["config"]))
     monkeypatch.setenv("XDG_STATE_HOME", str(paths["state"]))
+    monkeypatch.setattr("troll.keylabels.STYLE", "nano")  # host-independent key labels
     return paths
 
 

@@ -16,6 +16,7 @@ from . import __version__
 from . import explain
 from .blame import NOT_COMMITTED, CommitView
 from .commit_session import STATUS_NAMES
+from .keylabels import localize
 from .project import context_ranges
 from .prompt import Choice, HelpScreen, Picker, Prompt
 from .settings_screen import SettingsScreen
@@ -461,7 +462,7 @@ def doc_rows(ed, doc, height: int, width: int) -> tuple[list[list[Seg]], tuple[i
             rb.pad("ghost", "del")
             out.append(rb.row())
         else:  # fold
-            label = f" ⋯ {count} unchanged line{'s' if count != 1 else ''} (M-Z shows all) ⋯"
+            label = f" ⋯ {count} unchanged line{'s' if count != 1 else ''} ({localize('M-Z')} shows all) ⋯"
             rb.add(" " * gw, "fold", None)
             rb.add(label, "fold", None)
             out.append(rb.row())
@@ -531,7 +532,7 @@ def side_by_side_rows(ed, doc, height: int, width: int) -> tuple[list[list[Seg]]
         rb = RowBuilder(width)
         item = layout[idx] if idx < len(layout) else None
         if item is not None and item.kind == "fold":
-            label = f" ⋯ {item.count} unchanged line{'s' if item.count != 1 else ''} (M-Z shows all) ⋯"
+            label = f" ⋯ {item.count} unchanged line{'s' if item.count != 1 else ''} ({localize('M-Z')} shows all) ⋯"
             rb.add(" " * gw, "fold", None)
             rb.add(label, "fold", None)
             out.append(rb.row())
@@ -598,7 +599,7 @@ def definition_rows(ed, panel, height: int, width: int, tab: int) -> list[list[S
     if k < len(panel.rows) and len(out) == height and height > 1:
         rb = RowBuilder(width)
         rest = len(panel.rows) - k + 1
-        rb.add(f" ↓ {rest} more line{'s' if rest != 1 else ''} (M-PgDn)", "fold", None)
+        rb.add(f" ↓ {rest} more line{'s' if rest != 1 else ''} ({localize('M-PgDn')})", "fold", None)
         out[-1] = rb.row()
     while len(out) < height:
         out.append([])
@@ -714,7 +715,7 @@ def tooltip_overlay(ed, body: list[list[Seg]], height: int, width: int) -> list[
         return body
     tip.scroll = max(0, min(tip.scroll, len(content) - shown))
     more = len(content) - tip.scroll - shown
-    hint = f" ↓ {more} more: M-PgDn " if more else " M-PgUp " if tip.scroll else ""
+    hint = f" ↓ {more} more: {localize('M-PgDn')} " if more else f" {localize('M-PgUp')} " if tip.scroll else ""
     lo = max(0, text_x - 1) if width - text_x + 1 >= bw else 0  # keep off the line numbers if it fits
     bx = max(lo, min(px - 3, width - bw))
     joint = max(1, min(px - bx, bw - 2)) - 1  # index among the border's inner cells
@@ -812,8 +813,8 @@ def overview_rows(ed, height: int, width: int) -> list[list[Seg]]:
         line((f"  {n} later commit{'s' if n != 1 else ''} will be replayed on top when you rewrite.", "comment"))
     else:
         line(("  This is the HEAD commit.", "comment"))
-    line(("  Enter", "help.key"), (" open   ", "text"), ("^S", "help.key"), (" rewrite commit   ", "text"),
-         ("^X", "help.key"), (" leave   ", "text"), ("^T", "help.key"), (" commands", "text"))
+    line(("  Enter", "help.key"), (" open   ", "text"), (localize("^S"), "help.key"), (" rewrite commit   ", "text"),
+         (localize("^X"), "help.key"), (" leave   ", "text"), (localize("^T"), "help.key"), (" commands", "text"))
     # keep the selected entry visible
     offset = 0
     sel_line = first_entry + s.selected
@@ -853,7 +854,7 @@ def browser_rows(ed, height: int, width: int) -> tuple[list[list[Seg]], tuple[in
         rb.add(b.filter.text, "palette.input", "palette")
     else:
         back = "M-+/M-- context · Esc back to the list" if b.hits is not None else "^W search in files"
-        rb.add(f"type to filter · Enter open · ← back · {back} · ^F find file", "palette.placeholder", "palette")
+        rb.add(localize(f"type to filter · Enter open · ← back · {back} · ^F find file"), "palette.placeholder", "palette")
     rb.pad("palette", "palette")
     rows.append(rb.row())
     cursor = (1, min(width - 1, 3 + _w(b.filter.text[: b.filter.cursor])))
@@ -1096,7 +1097,7 @@ def settings_rows(sc: SettingsScreen, ed, height: int, width: int) -> tuple[list
     rb = RowBuilder(width)
     note = "  (editor-wide)" if info.editor_wide else ""
     rb.add(f" {info.label}: ", "prompt.label")
-    rb.add(info.help + note, "text")
+    rb.add(localize(info.help) + note, "text")
     footer.append(rb.row())
     if sc.error:
         rb = RowBuilder(width)
@@ -1206,7 +1207,7 @@ def status_row(ed, width: int) -> tuple[list[Seg], int | None]:
         for keys, label, _ in p.options:
             rb.add(f" {keys[0].upper()} ", "help.key", "prompt")
             rb.add(label + " ", "prompt", "prompt")
-        rb.add(" ^C ", "help.key", "prompt")
+        rb.add(f" {localize('^C')} ", "help.key", "prompt")
         rb.add("Cancel", "prompt", "prompt")
         rb.pad("prompt", "prompt")
         return rb.row(), min(width - 1, _w(p.label) + 1)
@@ -1308,8 +1309,13 @@ def help_items(ed) -> list[tuple[str, str]]:
 def help_bar_rows(items: list[tuple[str, str]], width: int) -> list[list[Seg]]:
     """Two nano-style shortcut rows. The first half of `items` is the top row;
     columns are dropped from the right when the terminal is narrow."""
+    items = [(localize(key), label) for key, label in items]
     per_row = (len(items) + 1) // 2
     columns = max(1, min(per_row, width // 16))
+    # longer labels (Ctrl+X) need wider columns: drop columns rather than cut labels
+    while columns > 1 and any(_w(k) + _w(l) + 2 > width // columns
+                              for r in range(2) for k, l in items[r * per_row : r * per_row + columns]):
+        columns -= 1
     col_w = max(1, width // columns)
     rows = []
     for r in range(2):

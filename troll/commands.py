@@ -12,6 +12,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Callable
 
 from . import languages
+from .keylabels import key_label, localize, modifier_note
 from .search import count_words
 from .settings import FALSE, TRUE, resolve_option, set_option
 
@@ -61,23 +62,6 @@ def build_keymap() -> dict[str, str]:
         for key in cmd.keys:
             keymap[key] = cmd.name
     return keymap
-
-
-def key_label(key: str) -> str:
-    """Human readable key name in nano's notation (^W, M-U, ...)."""
-    if key.startswith("C-") and len(key) == 3:
-        return "^" + key[2].upper()
-    if key in ("C-\\", "C-]", "C-^", "C-_"):
-        return "^" + key[2]
-    if key == "C-Space":
-        return "^Space"
-    if key.startswith("M-") and len(key) == 3:
-        return "M-" + key[2].upper()
-    arrows = {"Up": "↑", "Down": "↓", "Left": "←", "Right": "→"}
-    for name, arrow in arrows.items():
-        if key.endswith(name) and key != name:
-            return key[: -len(name)].replace("C-", "^").replace("S-", "Sh-") + arrow
-    return key.replace("C-", "^").replace("S-", "Sh-")
 
 
 def find_command(word: str) -> Command | None:
@@ -131,7 +115,7 @@ def run_command_line(ed: "Editor", line: str) -> None:
     word, _, args = line.partition(" ")
     cmd = find_command(word)
     if cmd is None:
-        ed.error(f"Unknown command '{word}' (press ^T to browse commands)")
+        ed.error(f"Unknown command '{word}' " + localize("(press ^T to browse commands)"))
         return
     if cmd.commit_only and ed.commit is None:
         ed.error(f"'{cmd.name}' only works while editing a commit")
@@ -234,7 +218,7 @@ def _insert_file(ed, args):
          aliases=("e", "edit", "o"), category="File")
 def _open(ed, args):
     if ed.commit is not None:
-        ed.error("Leave the commit editor first (^X)")
+        ed.error(localize("Leave the commit editor first (^X)"))
         return
     ed.open_file(args)
 
@@ -242,7 +226,7 @@ def _open(ed, args):
 @command("new", "Open a new empty buffer", needs_doc=False, category="File")
 def _new(ed, args):
     if ed.commit is not None:
-        ed.error("Leave the commit editor first (^X)")
+        ed.error(localize("Leave the commit editor first (^X)"))
         return
     ed.new_doc()
 
@@ -834,7 +818,7 @@ def _what_is_this(ed, args):
          needs_doc=False, overview=True, aliases=("edit-commit", "troll", "rev"), category="Commit")
 def _commit(ed, args):
     if ed.commit is not None and ed.commit.dirty:
-        ed.error("Apply (^S) or discard (^X, N) the current commit edits first")
+        ed.error(localize("Apply (^S) or discard (^X, N) the current commit edits first"))
         return
     if args:
         ed.commit = None
@@ -935,7 +919,7 @@ def _revert_file(ed, args):
 # ======================================================================
 
 INTRO = """\
-troll is a nano-compatible editor. ^ means Ctrl, M- means Alt (or Esc then the key).
+troll is a nano-compatible editor. {modifiers}
 Press ^T (or M-X) to open the command palette: type to filter, Enter to run.
 You can also type full commands there, for example:
 
@@ -996,7 +980,7 @@ SETTINGS
 
 
 def help_lines(ed: "Editor") -> list[str]:
-    lines = INTRO.split("\n")
+    lines = localize(INTRO.replace("{modifiers}", modifier_note())).split("\n")
     by_cat: dict[str, list[Command]] = {}
     for cmd in COMMANDS.values():
         if cmd.hidden and not cmd.keys:
@@ -1011,9 +995,9 @@ def help_lines(ed: "Editor") -> list[str]:
             if cmd.hidden:
                 continue
             keys = ", ".join(key_label(k) for k in cmd.keys[:3])
-            lines.append(f"  {keys:<22} {cmd.name:<18} {cmd.help}")
+            lines.append(f"  {keys:<22} {cmd.name:<18} {localize(cmd.help)}")
         lines.append("")
     lines.append("MOVEMENT")
-    lines.append("  arrows or ^F ^B ^P ^N, ^A/^E line start/end, ^Y/^V page, ^Space/M-Space word,")
-    lines.append("  M-\\ / M-/ top/bottom. Hold Shift with any of them to select text.")
+    lines.append(localize("  arrows or ^F ^B ^P ^N, ^A/^E line start/end, ^Y/^V page, ^Space/M-Space word,"))
+    lines.append(localize("  M-\\ / M-/ top/bottom. Hold Shift with any of them to select text."))
     return lines

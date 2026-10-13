@@ -472,7 +472,7 @@ class Editor:
         for c in cmds.COMMANDS.values():
             if c.hidden or (c.commit_only and self.commit is None):
                 continue
-            items.append(PickerItem(c.name, c.help, c.name, cmds.key_label(c.keys[0]) if c.keys else "", c.name + " " + " ".join(c.aliases)))
+            items.append(PickerItem(c.name, cmds.localize(c.help), c.name, cmds.key_label(c.keys[0]) if c.keys else "", c.name + " " + " ".join(c.aliases)))
         # most recently used first (the first one is preselected); the rest keep their order
         rank = {name: i for i, name in enumerate(config.recent_commands())}
         items.sort(key=lambda it: rank.get(it.value, len(rank)))
@@ -907,7 +907,7 @@ class Editor:
 
     def show_browser(self) -> None:
         if self.commit is not None:
-            self.error("Leave the commit editor first (^X)")
+            self.error(cmds.localize("Leave the commit editor first (^X)"))
             return
         if self.browser is None:
             self.browser = Browser(self.cwd)
@@ -961,7 +961,7 @@ class Editor:
             elif self.docs:
                 b.visible = False
             else:
-                self.info("^X quits, ^W searches the files, ^F finds a file by name")
+                self.info(cmds.localize("^X quits, ^W searches the files, ^F finds a file by name"))
         elif key in ("C-w", "F6"):
             self.search_files_prompt()
         elif key == "C-f":
@@ -988,7 +988,7 @@ class Editor:
                 self.run(name)
                 self.last_command = name
             else:
-                self.info("Enter opens, type to filter, ^W searches the files, ^F finds a file, ^X quits")
+                self.info(cmds.localize("Enter opens, type to filter, ^W searches the files, ^F finds a file, ^X quits"))
 
     def _browser_choose(self) -> None:
         b = self.browser
@@ -1014,7 +1014,7 @@ class Editor:
 
     def search_files_prompt(self) -> None:
         if self.commit is not None:
-            self.error("Leave the commit editor first (^X)")
+            self.error(cmds.localize("Leave the commit editor first (^X)"))
             return
         if self.browser is None:
             self.browser = Browser(self.cwd)
@@ -1027,7 +1027,7 @@ class Editor:
     def search_files(self, query: str) -> None:
         """Search every file of the shown directory (or the whole project) for `query`."""
         if self.commit is not None:
-            self.error("Leave the commit editor first (^X)")
+            self.error(cmds.localize("Leave the commit editor first (^X)"))
             return
         query = query or self.last_search
         if not query:
@@ -1063,7 +1063,7 @@ class Editor:
     def find_file(self) -> None:
         """Pick any file below the project root by (fuzzy) name."""
         if self.commit is not None:
-            self.error("Leave the commit editor first (^X)")
+            self.error(cmds.localize("Leave the commit editor first (^X)"))
             return
         root = self.browser.root if self.browser is not None else self.cwd
         files = project.list_files(root)
@@ -1146,7 +1146,7 @@ class Editor:
             elif key in ("q",):
                 self.exit()
             else:
-                self.info("Enter opens the selected file, ^S rewrites the commit, ^X exits")
+                self.info(cmds.localize("Enter opens the selected file, ^S rewrites the commit, ^X exits"))
 
     def apply_commit(self, then=None) -> None:
         s = self.commit
@@ -1510,7 +1510,7 @@ class Editor:
         del self.jump_stack[:-100]
         target.goto(d.row, d.col)
         where = "" if target is doc else f"{src.label}:"
-        self.info(f"{sym.name}: {d.kind} at {where}{d.row + 1} (M-B jumps back)")
+        self.info(f"{sym.name}: {d.kind} at {where}{d.row + 1} " + cmds.localize("(M-B jumps back)"))
 
     def _show(self, sym: defs.Symbol, src: defs.Source, d: defs.Definition) -> None:
         title = f"{sym.name} · {d.kind} · {src.label}:{d.row + 1}"
@@ -1526,7 +1526,7 @@ class Editor:
             return
         src, d = found[0]
         self._show(sym, src, d)
-        self.info("Esc closes the definition panel, M-PgUp/M-PgDn scroll it")
+        self.info(cmds.localize("Esc closes the definition panel, M-PgUp/M-PgDn scroll it"))
 
     def scroll_definition(self, delta: int) -> None:
         if self.tooltip is not None:  # the tooltip is on top, so it scrolls first

@@ -9,6 +9,7 @@ import sys
 
 from . import __version__, config
 from .editor import Editor
+from .keylabels import key_label
 from .gitcommit import GitError
 from .settings import Settings
 
@@ -17,7 +18,7 @@ def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="troll",
         description="A nano-style editor with syntax highlighting, smart formatting, "
-        "a command palette (^T) and an interactive editor for git commits.",
+        f"a command palette ({key_label('C-t')}) and an interactive editor for git commits.",
         epilog="Examples:\n"
         "  troll file.py                 edit a file\n"
         "  troll +42 file.py             open at line 42 (+42,7 for a column)\n"
