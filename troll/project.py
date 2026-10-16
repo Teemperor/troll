@@ -57,6 +57,11 @@ def list_dir(path: str) -> list[Entry]:
     return out
 
 
+def _hidden(rel: str) -> bool:
+    """Is `rel` inside a version control directory (`.git` and friends)?"""
+    return any(part in HIDDEN for part in rel.replace(os.sep, "/").split("/"))
+
+
 def _git_files(root: str) -> list[str] | None:
     try:
         proc = subprocess.run(
@@ -68,7 +73,7 @@ def _git_files(root: str) -> list[str] | None:
     if proc.returncode != 0:
         return None
     names = [os.fsdecode(n) for n in proc.stdout.split(b"\0") if n]
-    return sorted({n for n in names if os.path.isfile(os.path.join(root, n))})
+    return sorted({n for n in names if not _hidden(n) and os.path.isfile(os.path.join(root, n))})
 
 
 def list_files(root: str) -> list[str]:
@@ -92,6 +97,8 @@ def search_files(root: str, files: list[str], pattern: re.Pattern, max_hits: int
     """Every (non-empty) match of `pattern` in the text files among `files`."""
     hits = []
     for rel in files:
+        if _hidden(rel):
+            continue
         full = os.path.join(root, rel)
         try:
             if os.path.getsize(full) > MAX_SEARCH_SIZE:
