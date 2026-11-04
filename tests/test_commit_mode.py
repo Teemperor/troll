@@ -555,3 +555,28 @@ def test_commit_list_fills_the_screen_and_colors_tags(repo):
     assert any("Another one" in line for line in lines)  # labels aren't cut at half the width
     rows = [line for line in lines if "] " in line and " ago" in line]
     assert len(rows) == 2 and all(line.endswith(" ago ") and len(line) == 120 for line in rows)  # right aligned
+
+
+def test_commit_list_highlights_commits_containing_a_string(repo):
+    repo.commit("base", {"a.txt": "1\n"})
+    in_diff = repo.commit("first", {"a.txt": "1\nneedle\n"})
+    in_message = repo.commit("Mention the Needle", {"b.txt": "2\n"})
+    repo.commit("third", {"c.txt": "3\n"})
+    ed = Editor(Settings(), cwd=repo.path, raise_errors=True)
+    ed.commit_picker()
+    ed.keys("C-w")
+    ed.type("needle")
+    ed.keys("Enter")
+    ed.poll_task(wait=True)
+    assert ed.overlay.highlighted == {in_diff, in_message}
+    marked = [line for line in build_frame(ed, 20, 100).text().split("\n") if line.startswith(" ● ")]
+    assert len(marked) == 2 and "Mention the Needle" in marked[0] and "first" in marked[1]
+    assert "2 of 4 commits" in ed.message.text
+
+    ed.type("first")  # only the commits left after filtering are searched
+    ed.keys("C-w", "Enter")  # the last search is prefilled
+    ed.poll_task(wait=True)
+    assert ed.overlay.highlighted == {in_diff} and "1 of 1 commits" in ed.message.text
+
+    ed.keys("C-w", "M-Backspace", "Enter")  # empty: no highlighting
+    assert ed.overlay.highlighted is None

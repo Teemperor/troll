@@ -61,6 +61,7 @@ STYLES: dict[str, tuple[int, int, int]] = {
     "palette.detail": (248, 7, 0),
     "palette.hint": (81, 6, 0),
     "palette.border": (238, 4, 0),
+    "palette.mark": (221, 3, BOLD),
     "tooltip.border": (75, 6, BOLD),
     "tooltip.title": (229, 3, BOLD),
     "tooltip.text": (253, 7, 0),
@@ -95,6 +96,7 @@ BACKGROUNDS: dict[str, tuple[int, int]] = {
     "help.keybg": (252, 7),
     "palette": (236, 0),
     "palette.sel": (24, 4),
+    "palette.hit": (58, 0),
     "tooltip": (235, 0),
     "tooltip.token": (61, 5),
 }

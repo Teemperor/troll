@@ -17,6 +17,7 @@ the repository is changed apart from unreferenced objects.
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 import tempfile
 from dataclasses import dataclass, field
@@ -200,6 +201,19 @@ def recent_commits(repo: str, limit: int = 300) -> list[tuple[str, str, str]]:
         sha, desc, who = line.split("\0", 2)
         result.append((sha, desc, who))
     return result
+
+
+def commits_matching(repo: str, shas: list[str], text: str) -> set[str]:
+    """The commits among `shas` whose message or diff (added/removed lines) contains `text`, ignoring case."""
+    if not shas or not text:
+        return set()
+    revs = ("\n".join(shas) + "\n").encode()
+    literal = re.sub(r"([.^$|?*+()\[\]{}\\])", r"\\\1", text)  # -G takes a POSIX regex
+    found: set[str] = set()
+    for test in (["-F", f"--grep={text}"], [f"-G{literal}"]):  # both in one call would mean "and"
+        out = git_out(repo, "log", "--no-walk=unsorted", "--stdin", "--format=%H", "-i", *test, input=revs)
+        found.update(out.split())
+    return found
 
 
 # ------------------------------------------------------------------ rewrite

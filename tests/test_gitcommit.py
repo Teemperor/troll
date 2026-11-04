@@ -183,3 +183,17 @@ def test_replay_follows_renames_and_deletions(repo):
     assert repo.show("HEAD", "b.py") == "# hello world\nx = 2"
     assert repo.git("ls-tree", "--name-only", "HEAD").split() == ["b.py"]
     assert repo.read("b.py") == "# hello world\nx = 2\n"
+
+
+def test_commits_matching(repo):
+    a = repo.commit("Add foo", {"a.txt": "x\n"})
+    b = repo.commit("other", {"a.txt": "x\nhas FOO.bar\n"})
+    c = repo.commit("unrelated", {"b.txt": "y\n"})
+    d = repo.commit("dots", {"a.txt": "x\nhas FOOxbar\n"})
+    shas = [a, b, c, d]
+    assert gitcommit.commits_matching(repo.path, shas, "foo") == {a, b, d}  # message, or added/removed lines
+    assert gitcommit.commits_matching(repo.path, shas, "foo.bar") == {b, d}  # d removes "FOO.bar"
+    assert gitcommit.commits_matching(repo.path, [c, d], "foo.bar") == {d}  # only the given commits
+    assert gitcommit.commits_matching(repo.path, shas, "o.b") == {b, d}
+    assert gitcommit.commits_matching(repo.path, shas, "x.b") == set()  # "." is literal
+    assert gitcommit.commits_matching(repo.path, shas, "") == set()

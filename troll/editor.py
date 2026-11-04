@@ -71,6 +71,7 @@ class Editor:
         self.index = 0
         self.commit: CommitSession | None = None
         self.commit_from_picker = False  # leaving the commit goes back to the commit list
+        self.commit_search_history: list[str] = []
         self.last_picked_commit: str | None = None  # sha preselected when the commit list reopens
         self.browser: Browser | None = None  # IDE mode (a directory was opened)
         self.cutbuffer: str | None = None
@@ -1153,11 +1154,35 @@ class Editor:
             if not self.docs and self.commit is None and self.browser is None:
                 self.quit_requested = True  # nothing else to go back to
 
-        self.overlay = Picker("Edit which commit?", items, chosen, allow_free_text=True,
-                              placeholder="filter commits or type a revision", on_cancel=cancelled, kind="commits")
+        picker = Picker("Edit which commit?", items, chosen, allow_free_text=True,
+                        placeholder="filter commits or type a revision", on_cancel=cancelled, kind="commits")
+        picker.keys["C-w"] = lambda: self.search_commits(repo, picker)
         shas = [item.value for item in items]
         if self.last_picked_commit in shas:
-            self.overlay.selected = shas.index(self.last_picked_commit)
+            picker.selected = shas.index(self.last_picked_commit)
+        self.overlay = picker
+
+    def search_commits(self, repo: str, picker: Picker) -> None:
+        """Highlight the commits in the (filtered) list whose message or diff contains a string."""
+        def submit(text):
+            if not text:
+                picker.highlighted = None
+                self.info("Highlighting cleared")
+                return
+            if text not in self.commit_search_history:
+                self.commit_search_history.append(text)
+            shas = [item.value for item in picker.filtered()]
+
+            def found(hits):
+                picker.highlighted = hits
+                self.info(f'{len(hits)} of {len(shas)} commits contain "{text}"')
+
+            self.run_task(f'Searching {len(shas)} commits for "{text}"',
+                          lambda: gitcommit.commits_matching(repo, shas, text), found)
+
+        self.ask("Highlight commits whose message or diff contains", submit,
+                 self.commit_search_history[-1] if self.commit_search_history else "",
+                 history=self.commit_search_history)
 
     def _jump_to_first_change(self) -> None:
         doc = self.doc

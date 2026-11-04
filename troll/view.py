@@ -1015,9 +1015,10 @@ def picker_rows(p: Picker, width: int, max_rows: int, fill: bool = False) -> tup
         label_w = max(12, width - 4 - max((_w(i.hint) + 2 for i in items if i.hint), default=0))
     for idx in range(p.scroll, min(len(items), p.scroll + list_h)):
         item = items[idx]
-        bg = "palette.sel" if idx == p.selected else "palette"
+        hit = p.highlighted is not None and item.value in p.highlighted
+        bg = "palette.sel" if idx == p.selected else "palette.hit" if hit else "palette"
         rb = RowBuilder(width)
-        rb.add("   ", "palette", bg)
+        rb.add(" ● " if hit else "   ", "palette.mark", bg)
         _add_label(rb, fit(item.label, label_w), bg, p.kind == "commits")
         hint = f" {item.hint} " if item.hint else ""
         detail_w = max(0, width - 3 - label_w - _w(hint) - 1)
@@ -1299,6 +1300,7 @@ HELP_SEARCH = [
 HELP_PROMPT = [("Enter", "Accept"), ("Tab", "Complete"), ("↑↓", "History"), ("^C", "Cancel")]
 HELP_SHOW = [("Enter", "Close"), ("←→", "Scroll"), ("drag", "Select with the mouse")]
 HELP_PICKER = [("↑↓", "Select"), ("Enter", "Run"), ("Tab", "Complete"), ("Esc", "Cancel"), ("type", "to filter")]
+HELP_COMMITS = [("↑↓", "Select"), ("Enter", "Edit"), ("^W", "Highlight"), ("Esc", "Cancel"), ("type", "to filter")]
 HELP_HELP = [("^X", "Close"), ("^Y", "Prev Page"), ("^V", "Next Page"), ("↑↓", "Scroll")]
 HELP_SETTINGS = [("↑↓", "Select"), ("Enter", "Change"), ("←→", "Adjust"), ("D", "Default"), ("S", "Save"),
                  ("Esc", "Close")]
@@ -1307,8 +1309,8 @@ HELP_SETTINGS_TEXT = [("type", "Edit the text"), ("Enter", "Accept"), ("Esc", "C
 
 
 def help_items(ed) -> list[tuple[str, str]]:
-    if isinstance(ed.overlay, Picker):
-        return HELP_PICKER
+    if isinstance(ed.overlay, Picker) and ed.prompt is None:
+        return HELP_COMMITS if ed.overlay.kind == "commits" else HELP_PICKER
     if isinstance(ed.overlay, HelpScreen):
         return HELP_HELP
     if isinstance(ed.overlay, CommitView):

@@ -234,6 +234,8 @@ class Picker:
     placeholder: str = ""
     filter_key: Callable[[str], str] | None = None  # maps typed text to the filter query
     kind: str = "picker"
+    keys: dict[str, Callable[[], None]] = field(default_factory=dict)  # extra key bindings
+    highlighted: set[Any] | None = None  # values of the items to highlight (None: no highlighting)
     field: LineEdit = field(default_factory=LineEdit)
     selected: int = 0
     scroll: int = 0
@@ -275,6 +277,9 @@ class Picker:
             self.scroll = self.selected - height + 1
 
     def handle(self, key: str) -> None:
+        if key in self.keys:
+            self.keys[key]()
+            return
         n = len(self.filtered())
         if key == "Enter":
             self.done = True
