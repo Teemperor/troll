@@ -138,6 +138,21 @@ class Prompt:
             self.field.handle(key)
 
 
+class ShowText(Prompt):
+    """Read-only text on the status line, there to be selected with the mouse."""
+
+    def __init__(self, label: str, text: str):
+        super().__init__(label, lambda _text: None)
+        self.field.set(text)
+        self.field.cursor = 0  # show the start of long texts
+
+    def handle(self, key: str) -> None:
+        if key in ("Enter", "Esc", "C-c", "C-x", "C-g", "q"):
+            self.done = True
+        elif key in ("Left", "Right", "Home", "End", "C-a", "C-e", "C-b", "C-f"):
+            self.field.handle(key)
+
+
 class Choice:
     """A yes/no/all style question answered with a single key."""
 

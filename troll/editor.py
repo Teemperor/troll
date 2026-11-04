@@ -15,6 +15,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 
 from . import blame as blamemod
+from . import clipboard
 from . import commands as cmds
 from . import config, gitcommit, languages, project
 from . import definitions as defs
@@ -22,7 +23,7 @@ from . import explain
 from .commit_session import CommitSession
 from .diffmodel import diff_opcodes
 from .document import Document, ReadOnlyError, decode
-from .prompt import Choice, HelpScreen, Picker, PickerItem, Prompt, PromptOption, is_printable
+from .prompt import Choice, HelpScreen, Picker, PickerItem, Prompt, PromptOption, ShowText, is_printable
 from .search import compile_query, find, replacement_text
 from .project import Browser
 from .textutil import index_at_display_col
@@ -69,6 +70,8 @@ class Editor:
         self.docs: list[Document] = []
         self.index = 0
         self.commit: CommitSession | None = None
+        self.commit_from_picker = False  # leaving the commit goes back to the commit list
+        self.last_picked_commit: str | None = None  # sha preselected when the commit list reopens
         self.browser: Browser | None = None  # IDE mode (a directory was opened)
         self.cutbuffer: str | None = None
         self.last_command: str | None = None
@@ -76,7 +79,7 @@ class Editor:
         self.overlay: Picker | HelpScreen | SettingsScreen | None = None
         self.message: Message | None = None
         self.highlight_match: tuple[Pos, Pos] | None = None
-        self.search_history: list[str] = []
+        self.search_history: list[str] = config.load_dir_stats(self.cwd)["searches"][::-1]  # oldest first
         self.replace_history: list[str] = []
         self.command_history: list[str] = []
         self.last_search: str = ""
@@ -95,6 +98,8 @@ class Editor:
         self.explanations: dict[tuple, str] = {}  # (file, row, token, line text) -> answer
         self.jobs: list[Job] = []
         self.llm: explain.Chat | None = None  # tests put a fake client here
+        self.copy_to_clipboard = clipboard.copy  # tests replace it
+        self.terminal_writes: list[str] = []  # escape sequences for the TUI to send (OSC 52)
         self._pasting = False
         self._paste: list[str] = []
         self.keymap = cmds.build_keymap()
@@ -140,6 +145,8 @@ class Editor:
             pos = config.recall_position(full)
             if pos is not None:
                 doc.goto(*pos)
+        if os.path.exists(full):
+            config.record_open_file(self.cwd, full, doc.cursor[0] + 1, doc.cursor[1] + 1)
         if not os.path.exists(full):
             self.info("New File")
         elif doc.readonly:
@@ -412,6 +419,32 @@ class Editor:
         self.prompt = Choice(question, options, on_cancel)
         return self.prompt
 
+    # ------------------------------------------------------------ clipboard
+    def file_path(self, doc: Document) -> str | None:
+        """The absolute path of the file `doc` shows (in a commit: in the work tree)."""
+        if self.commit is not None:
+            entry = self.commit.entry
+            if entry is None or entry.kind != "file":
+                return None
+            return os.path.join(self.commit.repo, entry.label)
+        return os.path.abspath(doc.path) if doc.path else None
+
+    def copy_text(self, label: str, text: str) -> None:
+        """Put `text` on the clipboard and show it on the status line, so it can also
+        be selected with the mouse."""
+        if self.copy_to_clipboard(text) is not None:
+            label = "Copied " + label
+        else:  # no clipboard tool: ask the terminal, which may or may not do it
+            self.terminal_writes.append(clipboard.osc52(text))
+            label = label[0].upper() + label[1:]
+        self.prompt = ShowText(label, text)
+
+    @property
+    def mouse_enabled(self) -> bool:
+        """Whether the terminal should report the mouse: not while copyable text is shown,
+        so that dragging selects it."""
+        return self.settings.mouse and not isinstance(self.prompt, ShowText)
+
     def all_docs(self) -> list[Document]:
         docs = list(self.docs)
         if self.commit is not None:
@@ -630,7 +663,16 @@ class Editor:
             self.info("Cancelled")
             return
         self.last_search = query
+        self.record_search(query)
         self.find_next(backwards=self.search_backwards)
+
+    def record_search(self, query: str) -> None:
+        """Keep the search in the history and in the stats of this directory (for the next session)."""
+        if not query:
+            return
+        if not self.search_history or self.search_history[-1] != query:
+            self.search_history.append(query)
+        config.record_search(self.cwd, query)
 
     def find_next(self, backwards: bool = False) -> bool:
         doc = self.doc
@@ -676,6 +718,7 @@ class Editor:
                 self.info("Cancelled")
                 return
             self.last_search = query
+            self.record_search(query)
             self.ask(f"Replace with", lambda repl: self.start_replace(query, repl), history=self.replace_history)
 
         self.ask(self._search_label(base), got_query, initial=initial, history=self.search_history, options=opts)
@@ -835,7 +878,7 @@ class Editor:
             self.quit_requested = True
             return
         if self.commit is not None:
-            self.exit_commit()
+            self.exit_commit(back_to_list=False)
             if self.commit is not None or self.quit_requested:
                 return
         dirty = [d for d in self.docs if d.modified]
@@ -1041,6 +1084,7 @@ class Editor:
         b = self.browser
         base = b.dir if b.visible else b.root
         self.last_search = query
+        self.record_search(query)
 
         def work():
             return project.search_files(base, project.list_files(base), pattern)
@@ -1079,10 +1123,11 @@ class Editor:
         self.overlay = Picker("Find file", items, chosen, placeholder="type part of a file name")
 
     # --------------------------------------------------------------- commit
-    def open_commit(self, rev: str) -> None:
+    def open_commit(self, rev: str, from_picker: bool = False) -> None:
         repo = gitcommit.repo_root(self.cwd)
         session = CommitSession.load(repo, rev, self.settings)
         self.commit = session
+        self.commit_from_picker = from_picker
         editable = [e for e in session.entries if e.kind == "file" and e.editable]
         if len(editable) == 1:
             session.open(session.entries.index(editable[0]))
@@ -1098,11 +1143,21 @@ class Editor:
 
         def chosen(item, text):
             if item is not None:
-                self.open_commit(item.value)
+                self.open_commit(item.value, from_picker=True)
             elif text.strip():
-                self.open_commit(text.strip())
+                self.open_commit(text.strip(), from_picker=True)
+            else:
+                cancelled()
 
-        self.overlay = Picker("Edit which commit?", items, chosen, allow_free_text=True, placeholder="filter commits or type a revision")
+        def cancelled():
+            if not self.docs and self.commit is None and self.browser is None:
+                self.quit_requested = True  # nothing else to go back to
+
+        self.overlay = Picker("Edit which commit?", items, chosen, allow_free_text=True,
+                              placeholder="filter commits or type a revision", on_cancel=cancelled)
+        shas = [item.value for item in items]
+        if self.last_picked_commit in shas:
+            self.overlay.selected = shas.index(self.last_picked_commit)
 
     def _jump_to_first_change(self) -> None:
         doc = self.doc
@@ -1184,12 +1239,16 @@ class Editor:
 
         self.choose(f"Rewrite commit {s.commit.short}{extra}?", [("yY", "Yes", yes), ("nN", "No", lambda: self.info("Cancelled"))])
 
-    def exit_commit(self) -> None:
+    def exit_commit(self, back_to_list: bool = True) -> None:
+        """Leave the commit editor; back to the commit list if the commit was picked from it."""
         s = self.commit
 
         def leave():
+            self.last_picked_commit = s.commit.sha  # the new sha if it was rewritten
             self.commit = None
-            if not self.docs:
+            if back_to_list and self.commit_from_picker:
+                self.commit_picker()  # reloaded: a rewrite changes the log
+            elif not self.docs:
                 self.quit_requested = True
 
         if not s.dirty:

@@ -288,6 +288,65 @@ def test_commit_picker(repo):
     assert ed.commit is not None and ed.commit.commit.subject == "Add helper comment"
 
 
+def test_leaving_a_picked_commit_returns_to_the_list(repo):
+    make_history(repo)
+    ed = Editor(Settings(), cwd=repo.path, raise_errors=True)
+    ed.commit_picker()
+    ed.type("helper")
+    ed.keys("Enter")
+    assert ed.commit is not None
+    if not ed.in_overview:
+        ed.keys("C-x")  # close the file: back to the commit overview
+    ed.keys("C-x")
+    assert ed.commit is None and not ed.quit_requested
+    assert isinstance(ed.overlay, Picker)
+    ed.keys("Esc")  # nothing else open: leaving the list quits
+    assert ed.quit_requested
+
+
+def test_commit_list_reselects_the_last_commit(repo):
+    target = make_history(repo)
+    ed = Editor(Settings(), cwd=repo.path, raise_errors=True)
+    ed.commit_picker()
+    ed.keys("Down", "Enter")  # "Add helper comment"
+    ed.exit_commit()
+    assert ed.overlay.selected == 1 and ed.overlay.current().value == target
+
+
+def test_commit_list_reselects_a_rewritten_commit(repo):
+    make_history(repo)
+    ed = Editor(Settings(), cwd=repo.path, raise_errors=True)
+    ed.commit_picker()
+    ed.keys("Down", "Enter")
+    ed.commit.open(ed.commit.entries.index(next(e for e in ed.commit.entries if e.label == "docs.txt")))
+    ed.type("more ")
+    ed.exit_commit()
+    ed.keys("y", "y")  # rewrite before leaving, confirm
+    ed.poll_task(wait=True)
+    new_sha = ed.last_picked_commit
+    assert new_sha == repo.git("rev-parse", "HEAD~1").strip()
+    assert ed.overlay.current().value == new_sha
+
+
+def test_leaving_a_commit_given_by_revision_quits(repo):
+    make_history(repo)
+    ed = Editor(Settings(), cwd=repo.path, raise_errors=True)
+    ed.open_commit("HEAD~1")
+    if not ed.in_overview:
+        ed.keys("C-x")
+    ed.keys("C-x")
+    assert ed.commit is None and ed.overlay is None and ed.quit_requested
+
+
+def test_quit_from_a_picked_commit_does_not_reopen_the_list(repo):
+    make_history(repo)
+    ed = Editor(Settings(), cwd=repo.path, raise_errors=True)
+    ed.commit_picker()
+    ed.keys("Enter")
+    ed.run("quit")
+    assert ed.quit_requested and ed.overlay is None
+
+
 def test_commit_command_from_normal_editing(repo, tmp_path):
     make_history(repo)
     ed = Editor(Settings(), cwd=repo.path, raise_errors=True)

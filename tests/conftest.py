@@ -9,12 +9,16 @@ from troll.settings import Settings
 
 
 @pytest.fixture(autouse=True)
-def user_files(monkeypatch, tmp_path):
-    """Keep tests away from the real settings file and position log."""
-    paths = {"config": tmp_path / "user" / "config", "state": tmp_path / "user" / "state"}
+def user_files(monkeypatch, tmp_path_factory):
+    """Keep tests away from the real settings file, position log and cache (in a directory
+    of their own, so that project searches in tmp_path don't find them)."""
+    user = tmp_path_factory.mktemp("home") / "user"
+    paths = {"config": user / "config", "state": user / "state", "cache": user / "cache"}
     monkeypatch.setenv("TROLL_CONFIG", str(paths["config"]))
     monkeypatch.setenv("XDG_STATE_HOME", str(paths["state"]))
+    monkeypatch.setenv("XDG_CACHE_HOME", str(paths["cache"]))
     monkeypatch.setattr("troll.keylabels.STYLE", "nano")  # host-independent key labels
+    monkeypatch.setattr("troll.clipboard.tools", lambda: [])  # never touch the real clipboard
     return paths
 
 

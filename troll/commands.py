@@ -100,6 +100,7 @@ def run_command_line(ed: "Editor", line: str) -> None:
         return
     if line[0] == "/":
         ed.last_search = line[1:]
+        ed.record_search(ed.last_search)
         ed.find_next()
         return
     if re.fullmatch(r"[-+]?\d+(?:[,:]\d+)?", line):
@@ -546,6 +547,7 @@ def _unexpand(ed, args):
 def _search(ed, args):
     if args:
         ed.last_search = args
+        ed.record_search(args)
         ed.find_next()
     else:
         ed.search_prompt()
@@ -678,6 +680,29 @@ def _wordcount(ed, args):
     text = doc.buffer.get_text(*sel) if sel else doc.text()
     lines, words, chars = count_words(text)
     ed.info(f"{'In Selection: ' if sel else ''}Lines: {lines}  Words: {words}  Chars: {chars}")
+
+
+def _copy_location(what):
+    def fn(ed, args):
+        path = ed.file_path(ed.doc)
+        if path is None:
+            ed.error("This buffer has no file name")
+            return
+        r, c = ed.doc.cursor
+        text = {"path": path, "file name": os.path.basename(path), "path:line": f"{path}:{r + 1}",
+                "path:line:col": f"{path}:{r + 1}:{c + 1}"}[what]
+        ed.copy_text(what, text)
+    return fn
+
+
+command("copy-path", "Copy the file's absolute path to the clipboard (and show it)", category="Info",
+        aliases=("path",))(_copy_location("path"))
+command("copy-file-name", "Copy the file's name to the clipboard (and show it)", category="Info",
+        aliases=("copy-filename", "copy-name"))(_copy_location("file name"))
+command("copy-path-line", "Copy path:line of the cursor to the clipboard (and show it)", category="Info",
+        aliases=("copy-location",))(_copy_location("path:line"))
+command("copy-path-line-col", "Copy path:line:col of the cursor to the clipboard (and show it)",
+        category="Info")(_copy_location("path:line:col"))
 
 
 def _toggle(attr, label, per_doc=True):

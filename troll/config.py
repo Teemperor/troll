@@ -1,4 +1,5 @@
-"""Files in the user's home: the settings file, the cursor position log and the recently used commands.
+"""Files in the user's home: the settings file, the cursor position log, the recently used commands
+and, per working directory, the recently opened files and searches (in the cache).
 
 The settings file holds one option per line, in any of these forms:
 
@@ -11,12 +12,17 @@ Names and values are the same as for the `set` command (aliases work too).
 
 from __future__ import annotations
 
+import hashlib
+import json
 import os
+import time
 
 from .settings import OPTION_INFO, Settings, resolve_option, set_option
 
 MAX_POSITIONS = 500
 MAX_RECENT_COMMANDS = 100
+MAX_RECENT_FILES = 100
+MAX_RECENT_SEARCHES = 100
 
 
 def config_path() -> str:
@@ -33,6 +39,13 @@ def positions_path() -> str:
 
 def recent_commands_path() -> str:
     return os.path.join(os.path.dirname(positions_path()), "recent_commands")
+
+
+def dir_stats_path(cwd: str) -> str:
+    """The cache file with the stats of the editor sessions started in `cwd`."""
+    base = os.environ.get("XDG_CACHE_HOME") or os.path.expanduser("~/.cache")
+    key = hashlib.sha256(os.path.realpath(cwd).encode(errors="surrogateescape")).hexdigest()[:24]
+    return os.path.join(base, "troll", "dirs", key + ".json")
 
 
 # ------------------------------------------------------------------ settings
@@ -199,3 +212,59 @@ def remember_command(name: str) -> None:
         os.replace(tmp, path)
     except OSError:
         pass
+
+
+# --------------------------------------------- per-directory stats (cache)
+
+
+def load_dir_stats(cwd: str) -> dict:
+    """{"cwd", "files": [{"path", "line", "col", "time"}], "searches": [...]} for
+    sessions started in `cwd`, most recent first (empty lists if there are none)."""
+    cwd = os.path.realpath(cwd)
+    stats = {"cwd": cwd, "files": [], "searches": []}
+    try:
+        with open(dir_stats_path(cwd), encoding="utf-8") as f:
+            data = json.load(f)
+    except (OSError, ValueError):
+        return stats
+    if not isinstance(data, dict) or data.get("cwd") != cwd:
+        return stats
+    stats["files"] = [e for e in data.get("files", []) if isinstance(e, dict) and isinstance(e.get("path"), str)]
+    stats["searches"] = [q for q in data.get("searches", []) if isinstance(q, str)]
+    return stats
+
+
+def _update_dir_stats(cwd: str, change) -> None:
+    """Re-read the stats (another session may have written them), apply `change` and
+    write them back atomically. Best effort: errors are ignored."""
+    stats = load_dir_stats(cwd)
+    change(stats)
+    path = dir_stats_path(cwd)
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        tmp = f"{path}.{os.getpid()}.tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(stats, f, indent=1)  # ASCII: undecodable file names survive as \udcXX
+            f.write("\n")
+        os.replace(tmp, path)
+    except (OSError, ValueError):
+        pass
+
+
+def record_open_file(cwd: str, file: str, line: int, col: int) -> None:
+    """Note that `file` was opened at `line`:`col` (1-based) by a session started in `cwd`."""
+    file = os.path.abspath(file)
+
+    def change(stats):
+        entry = {"path": file, "line": line, "col": col, "time": int(time.time())}
+        stats["files"] = [entry] + [e for e in stats["files"] if e["path"] != file][: MAX_RECENT_FILES - 1]
+
+    _update_dir_stats(cwd, change)
+
+
+def record_search(cwd: str, query: str) -> None:
+    """Note a search made by a session started in `cwd`."""
+    def change(stats):
+        stats["searches"] = [query] + [q for q in stats["searches"] if q != query][: MAX_RECENT_SEARCHES - 1]
+
+    _update_dir_stats(cwd, change)

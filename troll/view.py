@@ -18,7 +18,7 @@ from .blame import NOT_COMMITTED, CommitView
 from .commit_session import STATUS_NAMES
 from .keylabels import localize
 from .project import context_ranges
-from .prompt import Choice, HelpScreen, Picker, Prompt
+from .prompt import Choice, HelpScreen, Picker, Prompt, ShowText
 from .settings_screen import SettingsScreen
 from .textutil import (
     char_display,
@@ -1269,6 +1269,7 @@ HELP_SEARCH = [
     ("^C", "Cancel"), ("Enter", "Search"), ("^\\", "Replace"), ("Tab", "Complete"), ("", ""),
 ]
 HELP_PROMPT = [("Enter", "Accept"), ("Tab", "Complete"), ("↑↓", "History"), ("^C", "Cancel")]
+HELP_SHOW = [("Enter", "Close"), ("←→", "Scroll"), ("drag", "Select with the mouse")]
 HELP_PICKER = [("↑↓", "Select"), ("Enter", "Run"), ("Tab", "Complete"), ("Esc", "Cancel"), ("type", "to filter")]
 HELP_HELP = [("^X", "Close"), ("^Y", "Prev Page"), ("^V", "Next Page"), ("↑↓", "Scroll")]
 HELP_SETTINGS = [("↑↓", "Select"), ("Enter", "Change"), ("←→", "Adjust"), ("D", "Default"), ("S", "Save"),
@@ -1293,6 +1294,8 @@ def help_items(ed) -> list[tuple[str, str]]:
     if isinstance(ed.prompt, Choice):
         items = [(keys[0].upper(), label) for keys, label, _ in ed.prompt.options]
         return items + [("^C", "Cancel")]
+    if isinstance(ed.prompt, ShowText):
+        return HELP_SHOW
     if isinstance(ed.prompt, Prompt):
         return HELP_SEARCH if ed.prompt.options else HELP_PROMPT
     if ed.in_overview:

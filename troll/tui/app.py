@@ -105,12 +105,16 @@ class Painter:
         scr.refresh()
 
 
-def _set_bracketed_paste(on: bool) -> None:
+def _write_terminal(seq: str) -> None:
     try:
-        sys.stdout.write("\x1b[?2004h" if on else "\x1b[?2004l")
+        sys.stdout.write(seq)
         sys.stdout.flush()
     except OSError:
         pass
+
+
+def _set_bracketed_paste(on: bool) -> None:
+    _write_terminal("\x1b[?2004h" if on else "\x1b[?2004l")
 
 
 # wheel "buttons" (ncurses 6 values as a fallback for builds that don't export them)
@@ -179,9 +183,12 @@ def _main(stdscr, editor) -> None:
     mouse = False
     try:
         while not editor.quit_requested:
-            if editor.settings.mouse != mouse:
-                mouse = editor.settings.mouse
+            if editor.mouse_enabled != mouse:
+                mouse = editor.mouse_enabled
                 _set_mouse(mouse)
+            if editor.terminal_writes:
+                _write_terminal("".join(editor.terminal_writes))
+                editor.terminal_writes.clear()
             editor.poll_jobs()
             h, w = stdscr.getmaxyx()
             painter.paint(build_frame(editor, h, w))
