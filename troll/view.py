@@ -10,6 +10,7 @@ from __future__ import annotations
 import os
 import re
 import time
+import zlib
 from dataclasses import dataclass
 
 from . import __version__
@@ -962,9 +963,29 @@ def _hit_rows(ed, hit, rng: tuple[int, int], sel: bool, loc_w: int, width: int) 
 # ------------------------------------------------------------- overlays
 
 
-def picker_rows(p: Picker, width: int, max_rows: int) -> tuple[list[list[Seg]], tuple[int, int]]:
+TAG_RE = re.compile(r"\[[^\[\]]+\]")
+TAG_STYLES = [f"tag.{i}" for i in range(32)]  # colors defined in tui/theme.py
+
+
+def tag_style(tag: str) -> str:
+    """Stable color for a `[tag]`, from a hash of its lower-cased contents."""
+    return TAG_STYLES[zlib.crc32(tag[1:-1].lower().encode()) % len(TAG_STYLES)]
+
+
+def _add_label(rb: RowBuilder, label: str, bg: str, tags: bool) -> None:
+    pos = 0
+    if tags:
+        for m in TAG_RE.finditer(label):
+            rb.add(label[pos:m.start()], "palette.label", bg)
+            rb.add(m.group(), tag_style(m.group()), bg)
+            pos = m.end()
+    rb.add(label[pos:], "palette.label", bg)
+
+
+def picker_rows(p: Picker, width: int, max_rows: int, fill: bool = False) -> tuple[list[list[Seg]], tuple[int, int]]:
+    """The picker overlay; `fill` keeps it `max_rows` high however few items match."""
     items = p.filtered()
-    list_h = max(1, min(len(items) or 1, max_rows - 2))
+    list_h = max(1, max_rows - 2 if fill else min(len(items) or 1, max_rows - 2))
     p.selected = max(0, min(p.selected, max(0, len(items) - 1)))
     p.ensure_visible(list_h)
     rows: list[list[Seg]] = []
@@ -988,19 +1009,26 @@ def picker_rows(p: Picker, width: int, max_rows: int) -> tuple[list[list[Seg]], 
         rb.add("   no matches — Enter runs what you typed" if p.allow_free_text else "   no matches", "palette.detail", "palette")
         rb.pad("palette", "palette")
         rows.append(rb.row())
-    label_w = min(max((len(i.label) for i in items), default=10) + 2, max(12, width // 2))
+    if any(i.detail for i in items):
+        label_w = min(max((len(i.label) for i in items), default=10) + 2, max(12, width // 2))
+    else:  # nothing to show next to the labels: give them the whole row
+        label_w = max(12, width - 4 - max((_w(i.hint) + 2 for i in items if i.hint), default=0))
     for idx in range(p.scroll, min(len(items), p.scroll + list_h)):
         item = items[idx]
         bg = "palette.sel" if idx == p.selected else "palette"
         rb = RowBuilder(width)
         rb.add("   ", "palette", bg)
-        rb.add(fit(item.label, label_w), "palette.label", bg)
+        _add_label(rb, fit(item.label, label_w), bg, p.kind == "commits")
         hint = f" {item.hint} " if item.hint else ""
         detail_w = max(0, width - 3 - label_w - _w(hint) - 1)
         rb.add(fit(item.detail, detail_w), "palette.detail", bg)
         rb.add(" ", "palette", bg)
         rb.add(hint, "palette.hint", bg)
         rb.pad("palette", bg)
+        rows.append(rb.row())
+    while fill and len(rows) < list_h + 1:
+        rb = RowBuilder(width)
+        rb.pad("palette", "palette")
         rows.append(rb.row())
     rb = RowBuilder(width)
     rb.add("─" * width, "palette.border", None)
@@ -1375,7 +1403,8 @@ def build_frame(ed, height: int, width: int) -> Frame:
     if cursor is not None:
         cursor = (cursor[0] + 1, cursor[1])
     if isinstance(ed.overlay, Picker):
-        overlay, pc = picker_rows(ed.overlay, width, max(3, min(body_h, 14)))
+        full = ed.overlay.kind == "commits"
+        overlay, pc = picker_rows(ed.overlay, width, max(3, body_h if full else min(body_h, 14)), fill=full)
         overlay = overlay[:body_h]
         body = overlay + body[len(overlay):]
         cursor = (pc[0] + 1, pc[1])

@@ -532,3 +532,24 @@ def test_prev_change_lands_on_the_last_line_of_the_change(repo):
     assert ed.doc.lines[ed.doc.cursor[0]] == "new 7"  # going up: the last line of the previous change
     ed.keys("M-Up")
     assert ed.commit.current == 1 and ed.doc.lines[ed.doc.cursor[0]] == "new 21"  # a.txt's last change
+
+
+def test_commit_list_fills_the_screen_and_colors_tags(repo):
+    from troll import view
+    from troll.tui import theme
+
+    repo.commit("base", {"a.txt": "1\n"})
+    repo.commit("[LLDB] Fix the thing", {"a.txt": "2\n"})
+    repo.commit("[lldb][clang] Another one", {"a.txt": "3\n"})
+    ed = Editor(Settings(), cwd=repo.path, raise_errors=True)
+    ed.commit_picker()
+    frame = build_frame(ed, 40, 120)
+    lines = frame.text().split("\n")
+    border = next(i for i, line in enumerate(lines) if line.startswith("─" * 10))
+    assert border > 30  # the list reaches down to the status/help bars
+    segs = [seg for row in frame.rows for seg in row]
+    tags = {seg[0]: seg[1] for seg in segs if seg[0].startswith("[")}
+    assert tags["[lldb]"] == tags["[LLDB]"] == view.tag_style("[lldb]")
+    assert tags["[clang]"].startswith("tag.")
+    assert all(style in theme.STYLES for style in view.TAG_STYLES)
+    assert any("Another one" in line for line in lines)  # labels aren't cut at half the width

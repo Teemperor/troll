@@ -1154,7 +1154,7 @@ class Editor:
                 self.quit_requested = True  # nothing else to go back to
 
         self.overlay = Picker("Edit which commit?", items, chosen, allow_free_text=True,
-                              placeholder="filter commits or type a revision", on_cancel=cancelled)
+                              placeholder="filter commits or type a revision", on_cancel=cancelled, kind="commits")
         shas = [item.value for item in items]
         if self.last_picked_commit in shas:
             self.overlay.selected = shas.index(self.last_picked_commit)

@@ -69,6 +69,15 @@ STYLES: dict[str, tuple[int, int, int]] = {
     "tooltip.error": (210, 1, BOLD),
 }
 
+# `[tag]`s in the commit list (view.TAG_STYLES): readable on the palette backgrounds, (fg256, fg8)
+TAG_COLORS = [
+    (203, 1), (209, 3), (215, 3), (221, 3), (227, 3), (191, 2), (155, 2), (119, 2),
+    (83, 2), (85, 6), (86, 6), (87, 6), (81, 6), (75, 4), (111, 4), (105, 5),
+    (141, 5), (177, 5), (213, 5), (211, 1), (217, 1), (223, 3), (229, 3), (193, 2),
+    (158, 6), (159, 6), (153, 4), (147, 5), (183, 5), (219, 5), (174, 1), (180, 3),
+]
+STYLES.update({f"tag.{i}": (c256, c8, BOLD) for i, (c256, c8) in enumerate(TAG_COLORS)})
+
 # bg styles: (bg256, bg8)
 BACKGROUNDS: dict[str, tuple[int, int]] = {
     "add": (22, -1),
