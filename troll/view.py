@@ -1023,7 +1023,7 @@ def picker_rows(p: Picker, width: int, max_rows: int, fill: bool = False) -> tup
         detail_w = max(0, width - 3 - label_w - _w(hint) - 1)
         rb.add(fit(item.detail, detail_w), "palette.detail", bg)
         rb.add(" ", "palette", bg)
-        rb.add(hint, "palette.hint", bg)
+        rb.add(hint, "palette.detail" if p.kind == "commits" else "palette.hint", bg)
         rb.pad("palette", bg)
         rows.append(rb.row())
     while fill and len(rows) < list_h + 1:

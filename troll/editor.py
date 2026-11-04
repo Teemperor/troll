@@ -1136,7 +1136,7 @@ class Editor:
 
     def commit_picker(self) -> None:
         repo = gitcommit.repo_root(self.cwd)
-        items = [PickerItem(desc, "", sha, "", desc) for sha, desc in gitcommit.recent_commits(repo)]
+        items = [PickerItem(desc, "", sha, who, f"{desc} {who}") for sha, desc, who in gitcommit.recent_commits(repo)]
         if not items:
             self.error("No commits found")
             return

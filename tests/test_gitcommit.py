@@ -168,7 +168,8 @@ def test_recent_commits(repo):
     repo.commit("first", {"a": "a\n"})
     repo.commit("second", {"a": "b\n"})
     items = gitcommit.recent_commits(repo.path)
-    assert [d.split(" ", 1)[1].startswith(s) for (_sha, d), s in zip(items, ["second", "first"])] == [True, True]
+    assert [d.split(" ", 1)[1] for _sha, d, _who in items] == ["second", "first"]
+    assert items[0][2].startswith(repo.git("log", "-1", "--format=%an").strip() + ", ")
 
 
 def test_replay_follows_renames_and_deletions(repo):

@@ -553,3 +553,5 @@ def test_commit_list_fills_the_screen_and_colors_tags(repo):
     assert tags["[clang]"].startswith("tag.")
     assert all(style in theme.STYLES for style in view.TAG_STYLES)
     assert any("Another one" in line for line in lines)  # labels aren't cut at half the width
+    rows = [line for line in lines if "] " in line and " ago" in line]
+    assert len(rows) == 2 and all(line.endswith(" ago ") and len(line) == 120 for line in rows)  # right aligned

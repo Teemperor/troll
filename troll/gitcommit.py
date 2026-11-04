@@ -188,17 +188,17 @@ def is_binary(data: bytes) -> bool:
     return b"\0" in data[:8000]
 
 
-def recent_commits(repo: str, limit: int = 300) -> list[tuple[str, str]]:
-    """(sha, one-line description) for commits reachable from HEAD."""
-    fmt = "%H%x00%h %s (%an, %ar)"
+def recent_commits(repo: str, limit: int = 300) -> list[tuple[str, str, str]]:
+    """(sha, "short-sha subject", "author, date") for commits reachable from HEAD."""
+    fmt = "%H%x00%h %s%x00%an, %ar"
     try:
         out = git_out(repo, "log", f"-n{limit}", f"--format={fmt}")
     except GitError:
         return []
     result = []
     for line in out.splitlines():
-        sha, _, desc = line.partition("\0")
-        result.append((sha, desc))
+        sha, desc, who = line.split("\0", 2)
+        result.append((sha, desc, who))
     return result
 
 
