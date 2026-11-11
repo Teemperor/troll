@@ -415,6 +415,21 @@ def _join(ed, args):
         ed.info("Nothing to join")
 
 
+@command("by-claude", "Append an 'assisted-by: claude' line to the end of the buffer")
+def _by_claude(ed, args):
+    doc = ed.doc
+    lines = doc.buffer.lines
+    text = "assisted-by: claude"
+    with doc.edit():
+        if len(lines) > 1 and lines[-1] == "":  # keep the final newline last
+            row = len(lines) - 1
+            doc.buffer.insert((row, 0), text + "\n")
+            doc.cursor = (row, len(text))
+        else:
+            doc.cursor = doc.buffer.insert(doc.buffer.end(), ("\n" if lines[-1] else "") + text)
+    doc.goal_col = None
+
+
 @command("shell", "Insert the output of a shell command, or filter the selection through it (also: !cmd)",
          args="COMMAND", prompt="Command to execute", aliases=("!", "run", "filter"))
 def _shell(ed, args):

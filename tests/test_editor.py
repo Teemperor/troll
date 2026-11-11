@@ -406,3 +406,21 @@ def test_tab_and_shift_tab_indent_selection(editor):
     editor.keys("S-Tab")
     assert doc.text() == "a\nb"
     assert os.path.basename(doc.path) == "x.py"
+
+
+def test_by_claude_appends_line_at_end(editor):
+    doc = editor_with(editor, "x = 1\ny = 2\n", cursor=(0, 0))
+    run(editor, "by-claude")
+    assert doc.text() == "x = 1\ny = 2\nassisted-by: claude\n"
+    assert doc.cursor == (2, len("assisted-by: claude"))
+    editor.keys("M-u")
+    assert doc.text() == "x = 1\ny = 2\n"
+
+
+def test_by_claude_without_final_newline_or_text(editor):
+    doc = editor_with(editor, "x = 1")
+    run(editor, "by-claude")
+    assert doc.text() == "x = 1\nassisted-by: claude"
+    doc = editor_with(editor, "", path="empty.txt")
+    run(editor, "by-claude")
+    assert doc.text() == "assisted-by: claude"
