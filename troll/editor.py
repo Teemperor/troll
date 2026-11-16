@@ -967,6 +967,28 @@ class Editor:
                 b.filter.set("")
                 b.selected = next((i for i, e in enumerate(b.entries) if e.name == name), b.selected)
 
+    def show_file_dir(self) -> None:
+        """Show the directory of the current file in the directory overview. In IDE
+        mode the project root stays the same if the file is below it (the overview
+        goes down to the file's directory); otherwise that directory becomes the root."""
+        if self.commit is not None:
+            self.error(cmds.localize("Leave the commit editor first (^X)"))
+            return
+        doc = self.doc
+        if doc is None or not doc.path:
+            self.error("This buffer has no file name")
+            return
+        d, name = os.path.split(os.path.abspath(doc.path))
+        if not os.path.isdir(d):
+            self.error(f'"{d}" does not exist')
+            return
+        b = self.browser
+        if b is None or os.path.commonpath([b.root, d]) != b.root:
+            b = self.browser = Browser(d)
+        b.enter(d, select=name)
+        b.visible = True
+        self.info(f"Browsing {d}")
+
     def _browser_open(self, path: str, line: int | None = None, col: int | None = None) -> Document:
         rel = os.path.relpath(path, self.cwd)
         doc = self.open_file(path if rel.startswith("..") else rel, line, col)

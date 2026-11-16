@@ -201,3 +201,46 @@ def test_search_results_are_syntax_highlighted(tmp_path):
     ed.settings.highlight = False
     styles = {text.strip(): fg for row in build_frame(ed, 20, 80).rows for text, fg, _bg in row}
     assert "def" not in styles
+
+
+def run_command(ed, line):
+    ed.keys("C-t")
+    ed.type(line)
+    ed.keys("Enter")
+
+
+def test_directory_command_goes_down_to_the_file_dir_in_ide_mode(tmp_path):
+    make_tree(tmp_path)
+    ed = ide(tmp_path)
+    ed.keys("Enter", "Down", "Enter")  # src/util.py
+    ed.browser.enter(str(tmp_path))  # the overview was left at the root
+    run_command(ed, "directory")
+    b = ed.browser
+    assert ed.in_browser and b.root == str(tmp_path) and b.rel_dir == "src"
+    assert b.current().name == "util.py"
+    ed.keys("Left")  # the parents are still reachable
+    assert b.rel_dir == "" and b.current().name == "src"
+
+
+def test_directory_command_without_ide_mode_browses_the_file_dir(tmp_path):
+    make_tree(tmp_path)
+    ed = Editor(Settings(), cwd=str(tmp_path), raise_errors=True)
+    ed.open_file("src/app.py")
+    run_command(ed, "dir")
+    b = ed.browser
+    assert ed.in_browser and b.root == str(tmp_path / "src") and b.current().name == "app.py"
+    ed.keys("Esc")
+    assert not ed.in_browser and ed.doc.name == os.path.join("src", "app.py")
+
+
+def test_directory_command_outside_the_project_rebases_the_overview(tmp_path):
+    (tmp_path / "proj").mkdir()
+    make_tree(tmp_path / "proj")
+    (tmp_path / "other").mkdir()
+    (tmp_path / "other" / "x.txt").write_text("x\n")
+    ed = Editor(Settings(), cwd=str(tmp_path / "proj"), raise_errors=True)
+    ed.open_project(".")
+    ed.open_file(str(tmp_path / "other" / "x.txt"))
+    run_command(ed, "directory")
+    assert ed.in_browser and ed.browser.root == str(tmp_path / "other")
+    assert ed.browser.current().name == "x.txt"

@@ -251,9 +251,15 @@ def _buffers(ed, args):
 
 
 @command("browse", "Show the directory overview (IDE mode: type to filter, ^W searches, ^F finds a file)",
-         keys=("M-o",), needs_doc=False, aliases=("explorer", "project", "dir"), category="File")
+         keys=("M-o",), needs_doc=False, aliases=("explorer", "project"), category="File")
 def _browse(ed, args):
     ed.show_browser()
+
+
+@command("directory", "Show the directory of the current file in the directory overview",
+         aliases=("dir", "file-dir"), category="File")
+def _directory(ed, args):
+    ed.show_file_dir()
 
 
 @command("find-file", "Open any file of the project by (part of) its name", needs_doc=False, overview=True,
