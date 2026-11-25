@@ -19,6 +19,7 @@ def user_files(monkeypatch, tmp_path_factory):
     monkeypatch.setenv("XDG_CACHE_HOME", str(paths["cache"]))
     monkeypatch.setattr("troll.keylabels.STYLE", "nano")  # host-independent key labels
     monkeypatch.setattr("troll.clipboard.tools", lambda: [])  # never touch the real clipboard
+    monkeypatch.setattr("troll.weblinks.openers", lambda: [])  # never open a real browser
     return paths
 
 

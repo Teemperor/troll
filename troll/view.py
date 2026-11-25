@@ -1300,7 +1300,8 @@ HELP_SEARCH = [
 HELP_PROMPT = [("Enter", "Accept"), ("Tab", "Complete"), ("↑↓", "History"), ("^C", "Cancel")]
 HELP_SHOW = [("Enter", "Close"), ("←→", "Scroll"), ("drag", "Select with the mouse")]
 HELP_PICKER = [("↑↓", "Select"), ("Enter", "Run"), ("Tab", "Complete"), ("Esc", "Cancel"), ("type", "to filter")]
-HELP_COMMITS = [("↑↓", "Select"), ("Enter", "Edit"), ("^W", "Highlight"), ("Esc", "Cancel"), ("type", "to filter")]
+HELP_COMMITS = [("↑↓", "Select"), ("Enter", "Edit"), ("^W", "Highlight"), ("^O", "Open PR"), ("Esc", "Cancel"),
+                ("type", "to filter")]
 HELP_HELP = [("^X", "Close"), ("^Y", "Prev Page"), ("^V", "Next Page"), ("↑↓", "Scroll")]
 HELP_SETTINGS = [("↑↓", "Select"), ("Enter", "Change"), ("←→", "Adjust"), ("D", "Default"), ("S", "Save"),
                  ("Esc", "Close")]

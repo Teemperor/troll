@@ -42,6 +42,7 @@ class Settings:
     mouse: bool = False
     backup: bool = False
     remember_position: bool = False
+    pr_url: str = "https://github.com/llvm/llvm-project/pull/{}"  # commit list ^O: {} = the "(#N)" in the subject
     ai_url: str = "http://localhost:11211/api/openai/v1"  # what-is-this: OpenAI-compatible API (key: $OPENAI_API_KEY)
     ai_model: str = ""  # "" = the newest Claude Opus the server lists
     ai_context: int = 30  # lines above and below the token sent with the question
@@ -124,6 +125,9 @@ OPTIONS: tuple[OptionInfo, ...] = (
                "Commit editing", all_files=True),
     OptionInfo("fold_context", "Context lines", "Unchanged lines shown around each change when editing a commit",
                "Commit editing", maximum=50, all_files=True),
+    OptionInfo("pr_url", "Pull request URL",
+               "Commit list: ^O opens this for the \"(#N)\" in the selected commit's subject ({} = N)",
+               "Commit editing", editor_wide=True),
     OptionInfo("ai_url", "AI server URL",
                "OpenAI-compatible API that what-is-this asks (the key comes from $OPENAI_API_KEY)", "AI",
                editor_wide=True),
@@ -209,6 +213,7 @@ ALIASES = {
     "backups": "backup",
     "positionlog": "remember_position",
     "remember": "remember_position",
+    "prurl": "pr_url",
     "aiurl": "ai_url",
     "llmurl": "ai_url",
     "aimodel": "ai_model",

@@ -580,3 +580,37 @@ def test_commit_list_highlights_commits_containing_a_string(repo):
 
     ed.keys("C-w", "M-Backspace", "Enter")  # empty: no highlighting
     assert ed.overlay.highlighted is None
+
+
+def test_commit_list_opens_the_pull_request_in_the_browser(repo):
+    repo.commit("base", {"a.txt": "1\n"})
+    repo.commit("[lldb] Don't turn function-local enums into scoped enums (#244640)", {"a.txt": "2\n"})
+    ed = Editor(Settings(), cwd=repo.path, raise_errors=True)
+    opened = []
+    ed.open_url = lambda url: opened.append(url) or "open"
+    ed.commit_picker()
+    ed.keys("C-o")
+    assert opened == ["https://github.com/llvm/llvm-project/pull/244640"]
+    assert "Opened https://github.com/llvm/llvm-project/pull/244640" in ed.message.text
+    assert isinstance(ed.overlay, Picker)  # the list stays open
+    assert "^O Open PR" in build_frame(ed, 20, 120).text()
+
+    ed.settings.pr_url = "https://example.com/repo/pulls/"  # no {}: the number is appended
+    ed.keys("C-o")
+    assert opened[-1] == "https://example.com/repo/pulls/244640"
+
+    ed.keys("Down", "C-o")  # "base" names no pull request
+    assert len(opened) == 2 and "No pull request" in ed.message.text
+
+    ed.open_url = lambda url: None  # no browser: the URL is shown (and copied) instead
+    ed.keys("Up", "C-o")
+    assert ed.prompt is not None and "244640" in build_frame(ed, 20, 120).text()
+
+
+def test_pull_request_numbers_and_links():
+    from troll import weblinks
+    assert weblinks.pull_request("Fix (#12) and revert (#345)") == 345
+    assert weblinks.pull_request("Fix bug #12") is None
+    assert weblinks.pr_link("https://github.com/llvm/llvm-project/pull/{}", 7) == \
+        "https://github.com/llvm/llvm-project/pull/7"
+    assert weblinks.pr_link(" https://x/pull/ ", 7) == "https://x/pull/7"

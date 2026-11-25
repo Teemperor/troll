@@ -19,7 +19,7 @@ from . import clipboard
 from . import commands as cmds
 from . import config, gitcommit, languages, project
 from . import definitions as defs
-from . import explain
+from . import explain, weblinks
 from .commit_session import CommitSession
 from .diffmodel import diff_opcodes
 from .document import Document, ReadOnlyError, decode
@@ -100,6 +100,7 @@ class Editor:
         self.jobs: list[Job] = []
         self.llm: explain.Chat | None = None  # tests put a fake client here
         self.copy_to_clipboard = clipboard.copy  # tests replace it
+        self.open_url = weblinks.open_url  # tests replace it
         self.terminal_writes: list[str] = []  # escape sequences for the TUI to send (OSC 52)
         self._pasting = False
         self._paste: list[str] = []
@@ -1179,10 +1180,27 @@ class Editor:
         picker = Picker("Edit which commit?", items, chosen, allow_free_text=True,
                         placeholder="filter commits or type a revision", on_cancel=cancelled, kind="commits")
         picker.keys["C-w"] = lambda: self.search_commits(repo, picker)
+        picker.keys["C-o"] = lambda: self.open_pull_request(picker)
         shas = [item.value for item in items]
         if self.last_picked_commit in shas:
             picker.selected = shas.index(self.last_picked_commit)
         self.overlay = picker
+
+    def open_pull_request(self, picker: Picker) -> None:
+        """Open the pull request named in the selected commit's subject ("... (#1234)") in the browser."""
+        item = picker.current()
+        if item is None:
+            self.error("No commit selected")
+            return
+        number = weblinks.pull_request(item.label)
+        if number is None:
+            self.error("No pull request number (#N) in the commit's subject")
+            return
+        url = weblinks.pr_link(self.settings.pr_url, number)
+        if self.open_url(url) is None:
+            self.copy_text("pull request URL (no browser found)", url)
+        else:
+            self.info(f"Opened {url}")
 
     def search_commits(self, repo: str, picker: Picker) -> None:
         """Highlight the commits in the (filtered) list whose message or diff contains a string."""
