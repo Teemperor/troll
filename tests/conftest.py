@@ -20,7 +20,13 @@ def user_files(monkeypatch, tmp_path_factory):
     monkeypatch.setattr("troll.keylabels.STYLE", "nano")  # host-independent key labels
     monkeypatch.setattr("troll.clipboard.tools", lambda: [])  # never touch the real clipboard
     monkeypatch.setattr("troll.weblinks.openers", lambda: [])  # never open a real browser
+    monkeypatch.setattr("troll.github.run_gh", _no_gh)  # never ask the real GitHub
     return paths
+
+
+def _no_gh(args):
+    from troll.github import GhError
+    raise GhError("gh is disabled in tests")
 
 
 @pytest.fixture

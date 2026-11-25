@@ -944,6 +944,22 @@ def _comment_hunk(ed, args):
     ed.comment_hunk()
 
 
+@command("open-pr", "Show a GitHub pull request (description, reviews, comments, commits, diff) fetched with "
+         "gh; NUMBER, #NUMBER or URL (default: the PR in the edited commit's subject; pr_url sets the repo). "
+         "In the commit list: ^R", args="[PR]", needs_doc=False, overview=True, category="Info",
+         aliases=("pr", "show-pr", "pull-request"))
+def _open_pr(ed, args):
+    ed.show_pull_request(args)
+
+
+@command("open-pr", "Show a GitHub pull request (description, reviews, comments, commits, diff) fetched with "
+         "gh; PR = NUMBER, #NUMBER or URL (default: the PR in the edited commit's subject; pr_url sets the repo). "
+         "In the commit list: ^R", args="[PR]", needs_doc=False, overview=True, category="Info",
+         aliases=("pr", "show-pr", "pull-request"))
+def _open_pr(ed, args):
+    ed.show_pull_request(args)
+
+
 @command("blame", "Show next to each line the commit that introduced it; Enter on a line shows that commit "
          "(message and diff), Esc leaves", category="Info", aliases=("annotate",))
 def _blame(ed, args):

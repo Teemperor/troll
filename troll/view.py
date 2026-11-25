@@ -16,6 +16,8 @@ from dataclasses import dataclass
 from . import __version__
 from . import explain
 from .blame import NOT_COMMITTED, CommitView
+from .prview import TABS as PR_TABS
+from .prview import PullRequestView
 from .commit_session import STATUS_NAMES
 from .keylabels import localize
 from .project import context_ranges
@@ -1204,6 +1206,10 @@ def title_row(ed, width: int) -> list[Seg]:
                 right = "Modified"
             if len(ed.docs) > 1:
                 right = f"[{ed.index + 1}/{len(ed.docs)}] " + right
+    if isinstance(ed.overlay, PullRequestView):
+        pr = ed.overlay.pr
+        center = f"{pr.ref.owner}/{pr.ref.repo} · Pull request #{pr.ref.number}"
+        right = f"[{PR_TABS[ed.overlay.tab]}]"
     right = right + " "
     avail = width - _w(left) - _w(right)
     center = truncate_left(center, max(0, avail - 2))
@@ -1300,8 +1306,10 @@ HELP_SEARCH = [
 HELP_PROMPT = [("Enter", "Accept"), ("Tab", "Complete"), ("↑↓", "History"), ("^C", "Cancel")]
 HELP_SHOW = [("Enter", "Close"), ("←→", "Scroll"), ("drag", "Select with the mouse")]
 HELP_PICKER = [("↑↓", "Select"), ("Enter", "Run"), ("Tab", "Complete"), ("Esc", "Cancel"), ("type", "to filter")]
-HELP_COMMITS = [("↑↓", "Select"), ("Enter", "Edit"), ("^W", "Highlight"), ("^O", "Open PR"), ("Esc", "Cancel"),
-                ("type", "to filter")]
+HELP_COMMITS = [("↑↓", "Select"), ("Enter", "Edit"), ("^W", "Highlight"), ("^R", "Show PR"), ("^O", "PR in Browser"),
+                ("Esc", "Cancel"), ("type", "to filter")]
+HELP_PR = [("↑↓", "Scroll"), ("Tab", "Next Tab"), ("1-3", "Pick Tab"), ("N", "Next Item"), ("P", "Prev Item"),
+           ("O", "Open in Browser"), ("Space", "Page Down"), ("Esc", "Close")]
 HELP_HELP = [("^X", "Close"), ("^Y", "Prev Page"), ("^V", "Next Page"), ("↑↓", "Scroll")]
 HELP_SETTINGS = [("↑↓", "Select"), ("Enter", "Change"), ("←→", "Adjust"), ("D", "Default"), ("S", "Save"),
                  ("Esc", "Close")]
@@ -1316,6 +1324,8 @@ def help_items(ed) -> list[tuple[str, str]]:
         return HELP_HELP
     if isinstance(ed.overlay, CommitView):
         return HELP_COMMIT_VIEW
+    if isinstance(ed.overlay, PullRequestView):
+        return HELP_PR
     if isinstance(ed.overlay, SettingsScreen):
         if ed.overlay.dropdown is not None:
             return HELP_PICKER
@@ -1382,6 +1392,8 @@ def build_frame(ed, height: int, width: int) -> Frame:
     settings_cursor = None
     if isinstance(ed.overlay, HelpScreen):
         body = help_rows(ed.overlay, body_h, width)
+    elif isinstance(ed.overlay, PullRequestView):
+        body = ed.overlay.visible(body_h, width)
     elif isinstance(ed.overlay, CommitView):
         body = commit_view_rows(ed.overlay, body_h, width, ed.doc.settings.tab_size if ed.doc else 4)
     elif isinstance(ed.overlay, SettingsScreen):
@@ -1418,7 +1430,7 @@ def build_frame(ed, height: int, width: int) -> Frame:
     rows.append(status)
     if status_x is not None:
         cursor = (len(rows) - 1, status_x)
-    if isinstance(ed.overlay, (HelpScreen, SettingsScreen, CommitView)) or ed.in_overview:
+    if isinstance(ed.overlay, (HelpScreen, SettingsScreen, CommitView, PullRequestView)) or ed.in_overview:
         cursor = cursor if status_x is not None else None
     if settings_cursor is not None:
         cursor = (settings_cursor[0] + 1, settings_cursor[1])

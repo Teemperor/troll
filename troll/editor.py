@@ -19,7 +19,7 @@ from . import clipboard
 from . import commands as cmds
 from . import config, gitcommit, languages, project
 from . import definitions as defs
-from . import explain, weblinks
+from . import explain, github, prview, weblinks
 from .commit_session import CommitSession
 from .diffmodel import diff_opcodes
 from .document import Document, ReadOnlyError, decode
@@ -101,6 +101,7 @@ class Editor:
         self.llm: explain.Chat | None = None  # tests put a fake client here
         self.copy_to_clipboard = clipboard.copy  # tests replace it
         self.open_url = weblinks.open_url  # tests replace it
+        self.pull_requests: dict[str, github.PullRequest] = {}  # fetched by open-pr, by URL
         self.terminal_writes: list[str] = []  # escape sequences for the TUI to send (OSC 52)
         self._pasting = False
         self._paste: list[str] = []
@@ -248,7 +249,7 @@ class Editor:
             fn(*args)
         except ReadOnlyError as e:
             self.error(str(e))
-        except (OSError, ValueError, gitcommit.GitError) as e:
+        except (OSError, ValueError, gitcommit.GitError, github.GhError) as e:
             self.error(str(e))
         except Exception as e:  # never lose the user's work to a bug
             if self.raise_errors:
@@ -314,7 +315,7 @@ class Editor:
                 o.handle(key)
             finally:
                 if o.done and self.overlay is o:
-                    self.overlay = None
+                    self.overlay = getattr(o, "back", None)  # e.g. the PR view returns to the commit list
             return
         if self.in_overview:
             self._overview_key(key)
@@ -372,7 +373,7 @@ class Editor:
         kind, y, x = key.split(":")
         y, x = int(y), int(x)
         doc = self.doc
-        if isinstance(self.overlay, blamemod.CommitView) and kind != "Click":
+        if isinstance(self.overlay, (blamemod.CommitView, prview.PullRequestView)) and kind != "Click":
             self.overlay.handle(kind)
             return
         if self.prompt is not None or self.overlay is not None or doc is None or self.in_overview or self.in_browser:
@@ -1181,6 +1182,8 @@ class Editor:
                         placeholder="filter commits or type a revision", on_cancel=cancelled, kind="commits")
         picker.keys["C-w"] = lambda: self.search_commits(repo, picker)
         picker.keys["C-o"] = lambda: self.open_pull_request(picker)
+        picker.keys["C-r"] = lambda: self.show_pull_request(picker.current().label if picker.current() else "",
+                                                            back=picker)
         shas = [item.value for item in items]
         if self.last_picked_commit in shas:
             picker.selected = shas.index(self.last_picked_commit)
@@ -1196,11 +1199,51 @@ class Editor:
         if number is None:
             self.error("No pull request number (#N) in the commit's subject")
             return
-        url = weblinks.pr_link(self.settings.pr_url, number)
+        self.browse(weblinks.pr_link(self.settings.pr_url, number))
+
+    def browse(self, url: str) -> None:
         if self.open_url(url) is None:
-            self.copy_text("pull request URL (no browser found)", url)
+            self.copy_text("URL (no browser found)", url)
         else:
             self.info(f"Opened {url}")
+
+    def pull_request_url(self, target: str) -> str | None:
+        """The PR URL for "1234", "#1234", a URL, or text containing "(#1234)" (a commit subject)."""
+        target = target.strip()
+        if github.parse_pr_url(target):
+            return target
+        m = re.fullmatch(r"#?(\d+)", target)
+        number = int(m.group(1)) if m else weblinks.pull_request(target)
+        return None if number is None else weblinks.pr_link(self.settings.pr_url, number)
+
+    def show_pull_request(self, target: str = "", back=None) -> None:
+        """Fetch a PR with gh and show it like GitHub does. Without a target: the PR of the commit
+        being edited, otherwise ask."""
+        if not target.strip():
+            if self.commit is not None and weblinks.pull_request(self.commit.commit.subject) is not None:
+                target = self.commit.commit.subject
+            else:
+                self.ask("Pull request (number or URL)", lambda text: text.strip() and self.show_pull_request(text))
+                return
+        url = self.pull_request_url(target)
+        if url is None:
+            self.error("No pull request number (#N) in the commit's subject")
+            return
+        ref = github.parse_pr_url(url)
+        if ref is None:
+            self.error(f"Not a GitHub pull request URL: {url} (see the pr_url setting)")
+            return
+        if back is None and self.overlay is not None and not getattr(self.overlay, "done", False):
+            back = self.overlay  # not the palette this was run from
+
+        def show(pr):
+            self.pull_requests[url] = pr
+            self.overlay = prview.PullRequestView(pr, back=back, open_url=self.browse)
+
+        if url in self.pull_requests:
+            show(self.pull_requests[url])
+            return
+        self.run_task(f"Fetching {ref.slug} with gh", lambda: github.fetch(url), show)
 
     def search_commits(self, repo: str, picker: Picker) -> None:
         """Highlight the commits in the (filtered) list whose message or diff contains a string."""

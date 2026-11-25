@@ -593,7 +593,7 @@ def test_commit_list_opens_the_pull_request_in_the_browser(repo):
     assert opened == ["https://github.com/llvm/llvm-project/pull/244640"]
     assert "Opened https://github.com/llvm/llvm-project/pull/244640" in ed.message.text
     assert isinstance(ed.overlay, Picker)  # the list stays open
-    assert "^O Open PR" in build_frame(ed, 20, 120).text()
+    assert "^O PR in Browser" in build_frame(ed, 20, 120).text()
 
     ed.settings.pr_url = "https://example.com/repo/pulls/"  # no {}: the number is appended
     ed.keys("C-o")
